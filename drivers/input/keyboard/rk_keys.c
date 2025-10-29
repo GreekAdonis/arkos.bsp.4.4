@@ -344,6 +344,22 @@ static int keys_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, ddata);
 	dev_set_drvdata(&pdev->dev, ddata);
 
+	/*
+	* 可选：DT 里提供 repeat-delay-ms / repeat-period-ms（单位：毫秒）
+	* 4.4 内核没有 input_set_repeat_rate()，直接写 input->rep[] 即可
+	*   REP_DELAY  = 初始延迟
+	*   REP_PERIOD = 连发周期
+	* 注意：要在 input_register_device() 之前设置，以便生效为初始值。
+	*/
+	if (test_bit(EV_REP, input->evbit)) {
+			u32 rep_delay, rep_period;
+			if (!of_property_read_u32(np, "repeat-delay-ms", &rep_delay))
+					input->rep[REP_DELAY]  = rep_delay;
+			if (!of_property_read_u32(np, "repeat-period-ms", &rep_period))
+					input->rep[REP_PERIOD] = rep_period;
+			/* 若 DT 未给，input 核心会使用全局默认值（常见 250/33 ms） */
+	}
+
 	input->name = "rk29-keypad";	/* pdev->name; */
 	input->phys = "gpio-keys/input0";
 	input->dev.parent = dev;
@@ -359,6 +375,10 @@ static int keys_probe(struct platform_device *pdev)
 	error = rk_keys_parse_dt(ddata, pdev);
 	if (error)
 		goto fail0;
+
+	/* 从 DT 读取 autorepeat; 若存在则开启重复 */
+	if (of_property_read_bool(np, "autorepeat"))
+			ddata->rep = 1;
 
 	/* Enable auto repeat feature of Linux input subsystem */
 	if (ddata->rep)
