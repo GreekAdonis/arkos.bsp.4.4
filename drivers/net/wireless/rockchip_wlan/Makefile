@@ -11,6 +11,7 @@ obj-$(CONFIG_RTL8723DS) += rtl8723ds/
 obj-$(CONFIG_RTL8822BE)	+= rtl8822be/
 obj-$(CONFIG_SSV6051)	+= ssv6xxx/
 obj-$(CONFIG_MVL88W8977)	+= mvl88w8977/
+obj-$(CONFIG_AIC8800_WLAN_SUPPORT)	+= aic8800-usb/
 obj-$(CONFIG_WL_ROCKCHIP)	+= wifi_sys/rkwifi_sys_iface.o
 obj-$(CONFIG_WL_ROCKCHIP)	+= rkwifi/rk_wifi_config.o
 obj-$(CONFIG_CYW_BCMDHD)	+= cywdhd/
