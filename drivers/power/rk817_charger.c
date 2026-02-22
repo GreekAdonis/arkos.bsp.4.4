@@ -1,7 +1,7 @@
 /*
  * rk817 charger driver
  *
- * Copyright (C) 2018 Rockchip Electronics Co., Ltd
+ * Copyright (C) 2018 Rockchip Electronics Co., Ltd.
  * xsf <xsf@rock-chips.com>
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@ module_param_named(dbg_level, dbg_enable, int, 0644);
 
 #define DISABLE	0x00
 #define ENABLE	0x01
-#define OTG_SLP_ENABLE	0x03
+#define OTG_SLP_ENABLE	0x01
 #define OTG_SLP_DISABLE	0x00
 #define OTG_ENABLE		0x11
 #define OTG_DISABLE		0x10
@@ -192,6 +192,11 @@ enum charger_t {
 	DC_TYPE_NONE_CHARGER,
 };
 
+enum charger_state {
+	OFFLINE = 0,
+	ONLINE
+};
+
 enum rk817_charge_fields {
 	BOOST_EN, OTG_EN, OTG_SLP_EN, CHRG_CLK_SEL,
 	CHRG_EN, CHRG_VOL_SEL, CHRG_CT_EN, CHRG_CUR_SEL,
@@ -216,7 +221,7 @@ static const struct reg_field rk817_charge_reg_fields[] = {
 	[SOC_REG2] = REG_FIELD(0x9C, 0, 7),
 	[BOOST_EN] = REG_FIELD(0xB4, 1, 5),
 	[OTG_EN] = REG_FIELD(0xB4, 2, 6),
-	[OTG_SLP_EN] = REG_FIELD(0xB5, 5, 6),
+	[OTG_SLP_EN] = REG_FIELD(0xB5, 6, 6),
 	[CHRG_EN] = REG_FIELD(0xE4, 7, 7),
 	[CHRG_VOL_SEL] = REG_FIELD(0xE4, 4, 6),
 	[CHRG_CT_EN] = REG_FIELD(0xE4, 3, 3),
@@ -273,14 +278,11 @@ struct charger_platform_data {
 	u32 dc_det_level;
 	int dc_det_pin;
 	bool support_dc_det;
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	int chg_led_pin;
-	bool chg_led_on;
-#endif
 	int virtual_power;
 	int sample_res;
 	int otg5v_suspend_enable;
 	bool extcon;
+	int gate_function_disable;
 };
 
 struct rk817_charger {
@@ -302,10 +304,6 @@ struct rk817_charger {
 	struct delayed_work host_work;
 	struct delayed_work discnt_work;
 	struct delayed_work irq_work;
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	struct workqueue_struct *led_wq;
-	struct delayed_work led_work;
-#endif
 	struct notifier_block bc_nb;
 	struct notifier_block cable_cg_nb;
 	struct notifier_block cable_host_nb;
@@ -313,6 +311,7 @@ struct rk817_charger {
 	unsigned int bc_event;
 	enum charger_t usb_charger;
 	enum charger_t dc_charger;
+	struct regulator *otg5v_rdev;
 	u8 ac_in;
 	u8 usb_in;
 	u8 otg_in;
@@ -364,7 +363,7 @@ static int rk817_charge_ac_get_property(struct power_supply *psy,
 		else
 			val->intval = (charge->ac_in | charge->dc_in);
 
-		DBG("report online: %d\n", val->intval);
+		DBG("ac report online: %d\n", val->intval);
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		if (charge->pdata->virtual_power)
@@ -402,7 +401,7 @@ static int rk817_charge_usb_get_property(struct power_supply *psy,
 		else
 			val->intval = charge->usb_in;
 
-		DBG("report online: %d\n", val->intval);
+		DBG("usb report online: %d\n", val->intval);
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		if (charge->pdata->virtual_power)
@@ -486,8 +485,7 @@ static int rk817_charge_field_write(struct rk817_charger *charge,
 
 static int rk817_charge_get_otg_state(struct rk817_charger *charge)
 {
-	return ((rk817_charge_field_read(charge, OTG_EN) &
-		OTG_MODE) == OTG_MODE_ON);
+	return regulator_is_enabled(charge->otg5v_rdev);
 }
 
 static void rk817_charge_boost_disable(struct rk817_charger *charge)
@@ -502,12 +500,30 @@ static void rk817_charge_boost_enable(struct rk817_charger *charge)
 
 static void rk817_charge_otg_disable(struct rk817_charger *charge)
 {
-	rk817_charge_field_write(charge, OTG_EN, OTG_DISABLE);
+	int ret;
+
+	ret = regulator_disable(charge->otg5v_rdev);
+
+	if (ret) {
+		DBG("disable otg5v failed:%d\n", ret);
+		return;
+	}
+
+	return;
 }
 
 static void rk817_charge_otg_enable(struct rk817_charger *charge)
 {
-	rk817_charge_field_write(charge, OTG_EN, OTG_ENABLE);
+	int ret;
+
+	ret = regulator_enable(charge->otg5v_rdev);
+
+	if (ret) {
+		DBG("enable otg5v failed:%d\n", ret);
+		return;
+	}
+
+	return;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -762,6 +778,11 @@ static int rk817_charge_get_dsoc(struct rk817_charger *charge)
 	return soc_save / 1000;
 }
 
+static void rk817_charge_set_otg_in(struct rk817_charger *charge, int online)
+{
+	charge->otg_in = online;
+}
+
 static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 					enum charger_t charger)
 {
@@ -838,7 +859,6 @@ static void rk817_charge_set_otg_state(struct rk817_charger *charge, int state)
 		if (charge->otg_in) {
 			DBG("otg5v is on yet, ignore..\n");
 		} else {
-			charge->otg_in = 1;
 
 			if (!rk817_charge_get_otg_state(charge)) {
 				rk817_charge_otg_enable(charge);
@@ -857,7 +877,6 @@ static void rk817_charge_set_otg_state(struct rk817_charger *charge, int state)
 		if (!charge->otg_in) {
 			DBG("otg5v is off yet, ignore..\n");
 		} else {
-			charge->otg_in = 0;
 
 			if (rk817_charge_get_otg_state(charge)) {
 				rk817_charge_otg_disable(charge);
@@ -886,13 +905,8 @@ static irqreturn_t rk817_charge_dc_det_isr(int irq, void *charger)
 	else
 		irq_set_irq_type(irq, IRQF_TRIGGER_HIGH);
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	queue_delayed_work(charge->dc_charger_wq, &charge->dc_work,
-			   msecs_to_jiffies(2000));
-#else
 	queue_delayed_work(charge->dc_charger_wq, &charge->dc_work,
 			   msecs_to_jiffies(10));
-#endif
 
 	return IRQ_HANDLED;
 }
@@ -910,35 +924,6 @@ static enum charger_t rk817_charge_get_dc_state(struct rk817_charger *charge)
 		DC_TYPE_DC_CHARGER : DC_TYPE_NONE_CHARGER;
 }
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-static void rk817_charge_led_worker(struct work_struct *work)
-{
-	struct rk817_charger *charge = container_of(work,
-			struct rk817_charger, led_work.work);
-
-	/* battery status check */
-	if (rk817_charge_online(charge)) {
-		if ((rk817_charge_get_dsoc(charge) == 100) &&
-		    (charge->prop_status != POWER_SUPPLY_STATUS_FULL))
-			queue_delayed_work(charge->dc_charger_wq, &charge->dc_work,
-					msecs_to_jiffies(2000));
-
-		if (charge->prop_status == POWER_SUPPLY_STATUS_CHARGING)
-			gpio_set_value(charge->pdata->chg_led_pin,
-					!gpio_get_value(charge->pdata->chg_led_pin));
-		else
-			gpio_set_value(charge->pdata->chg_led_pin,
-					charge->pdata->chg_led_on);
-	}
-	else
-		gpio_set_value(charge->pdata->chg_led_pin,
-				!charge->pdata->chg_led_on);
-
-	queue_delayed_work(charge->led_wq, &charge->led_work,
-		msecs_to_jiffies(1000));
-}
-#endif
-
 static void rk817_charge_dc_det_worker(struct work_struct *work)
 {
 	enum charger_t charger;
@@ -949,13 +934,20 @@ static void rk817_charge_dc_det_worker(struct work_struct *work)
 	if (charger == DC_TYPE_DC_CHARGER) {
 		DBG("detect dc charger in..\n");
 		rk817_charge_set_chrg_param(charge, DC_TYPE_DC_CHARGER);
-		rk817_charge_set_otg_state(charge, USB_OTG_POWER_OFF);
+		/* check otg supply */
+		if (charge->otg_in && charge->pdata->power_dc2otg) {
+			DBG("otg power from dc adapter\n");
+			rk817_charge_set_otg_state(charge, USB_OTG_POWER_OFF);
+		}
+
 		rk817_charge_boost_disable(charge);
 	} else {
 		DBG("detect dc charger out..\n");
 		rk817_charge_set_chrg_param(charge, DC_TYPE_NONE_CHARGER);
 		rk817_charge_boost_enable(charge);
-		rk817_charge_set_otg_state(charge, USB_OTG_POWER_OFF);
+		/* check otg supply, power on anyway */
+		if (charge->otg_in)
+			rk817_charge_set_otg_state(charge, USB_OTG_POWER_ON);
 	}
 }
 
@@ -989,30 +981,7 @@ static int rk817_charge_init_dc(struct rk817_charger *charge)
 		return ret;
 	}
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	if (charge->pdata->chg_led_pin) {
-		ret = devm_gpio_request(charge->dev,
-					charge->pdata->chg_led_pin,
-					"rk817_chg_led");
-		if (ret < 0)
-			dev_err(charge->dev, "failed to request gpio %d\n",
-				charge->pdata->chg_led_pin);
-		else
-			gpio_direction_output(charge->pdata->chg_led_pin,
-					     !charge->pdata->chg_led_on);
-	}
-
-	charge->led_wq = alloc_ordered_workqueue("%s",
-				WQ_MEM_RECLAIM | WQ_FREEZABLE,
-				"rk817-led-wq");
-	INIT_DELAYED_WORK(&charge->led_work, rk817_charge_led_worker);
-
-	queue_delayed_work(charge->led_wq, &charge->led_work,
-		msecs_to_jiffies(500));
-#endif
-
 	level = gpio_get_value(charge->pdata->dc_det_pin);
-
 	if (level == charge->pdata->dc_det_level)
 		charge->dc_charger = DC_TYPE_DC_CHARGER;
 	else
@@ -1030,6 +999,7 @@ static int rk817_charge_init_dc(struct rk817_charger *charge)
 		dev_err(charge->dev, "rk817_dc_det_irq request failed!\n");
 		return ret;
 	}
+
 	enable_irq_wake(dc_det_irq);
 
 	if (charge->dc_charger != DC_TYPE_NONE_CHARGER)
@@ -1045,15 +1015,21 @@ static void rk817_charge_host_evt_worker(struct work_struct *work)
 	struct extcon_dev *edev = charge->cable_edev;
 
 	/* Determine cable/charger type */
-	if (extcon_get_cable_state_(edev, EXTCON_USB_VBUS_EN) > 0) {
+	if (extcon_get_state(edev, EXTCON_USB_VBUS_EN) > 0) {
 		DBG("receive type-c notifier event: OTG ON...\n");
-		if (charge->dc_in && charge->pdata->power_dc2otg)
+		if (charge->dc_in && charge->pdata->power_dc2otg) {
+			if (charge->otg_in)
+				rk817_charge_set_otg_state(charge,
+							   USB_OTG_POWER_OFF);
 			DBG("otg power from dc adapter\n");
-		else
+		} else {
 			rk817_charge_set_otg_state(charge, USB_OTG_POWER_ON);
-	} else if (extcon_get_cable_state_(edev, EXTCON_USB_VBUS_EN) == 0) {
+		}
+		rk817_charge_set_otg_in(charge, ONLINE);
+	} else if (extcon_get_state(edev, EXTCON_USB_VBUS_EN) == 0) {
 		DBG("receive type-c notifier event: OTG OFF...\n");
 		rk817_charge_set_otg_state(charge, USB_OTG_POWER_OFF);
+		rk817_charge_set_otg_in(charge, OFFLINE);
 	}
 }
 
@@ -1067,11 +1043,11 @@ static void rk817_charger_evt_worker(struct work_struct *work)
 					     "AC", "CDP1.5A"};
 
 	/* Determine cable/charger type */
-	if (extcon_get_cable_state_(edev, EXTCON_CHG_USB_SDP) > 0)
+	if (extcon_get_state(edev, EXTCON_CHG_USB_SDP) > 0)
 		charger = USB_TYPE_USB_CHARGER;
-	else if (extcon_get_cable_state_(edev, EXTCON_CHG_USB_DCP) > 0)
+	else if (extcon_get_state(edev, EXTCON_CHG_USB_DCP) > 0)
 		charger = USB_TYPE_AC_CHARGER;
-	else if (extcon_get_cable_state_(edev, EXTCON_CHG_USB_CDP) > 0)
+	else if (extcon_get_state(edev, EXTCON_CHG_USB_CDP) > 0)
 		charger = USB_TYPE_CDP_CHARGER;
 
 	if (charger != USB_TYPE_UNKNOWN_CHARGER) {
@@ -1087,7 +1063,7 @@ static void rk817_charge_discnt_evt_worker(struct work_struct *work)
 	struct rk817_charger *charge = container_of(work,
 			struct rk817_charger, discnt_work.work);
 
-	if (extcon_get_cable_state_(charge->cable_edev, EXTCON_USB) == 0) {
+	if (extcon_get_state(charge->cable_edev, EXTCON_USB) == 0) {
 		DBG("receive type-c notifier event: DISCNT...\n");
 
 		rk817_charge_set_chrg_param(charge, USB_TYPE_NONE_CHARGER);
@@ -1273,8 +1249,6 @@ static int rk817_charge_usb_init(struct rk817_charger *charge)
 
 		charge->cable_edev = edev;
 
-		schedule_delayed_work(&charge->host_work, 0);
-		schedule_delayed_work(&charge->usb_work, 0);
 		DBG("register typec extcon evt notifier\n");
 	} else {
 		INIT_DELAYED_WORK(&charge->usb_work,
@@ -1284,7 +1258,7 @@ static int rk817_charge_usb_init(struct rk817_charger *charge)
 		if (ret) {
 			dev_err(dev, "failed to register notifier for bc\n");
 			return -EINVAL;
-		}
+	}
 
 		switch (bc_type) {
 		case USB_BC_TYPE_DISCNT:
@@ -1329,8 +1303,13 @@ static void rk817_charge_pre_init(struct rk817_charger *charge)
 
 	rk817_charge_set_chrg_finish_condition(charge);
 
-	rk817_charge_otg_disable(charge);
-	rk817_charge_sys_can_sd_disable(charge);
+	if (rk817_charge_get_otg_state(charge))
+		rk817_charge_otg_disable(charge);
+	rk817_charge_field_write(charge, OTG_EN, OTG_DISABLE);
+	rk817_charge_set_otg_in(charge, OFFLINE);
+
+	if (!charge->pdata->gate_function_disable)
+		rk817_charge_sys_can_sd_disable(charge);
 	rk817_charge_usb_to_sys_enable(charge);
 	rk817_charge_enable_charge(charge);
 
@@ -1354,6 +1333,19 @@ static void rk817_chage_debug(struct rk817_charger *charge)
 	    charge->max_chrg_voltage,
 	    charge->chrg_finish_cur,
 	    charge->chrg_term_mode);
+}
+
+static int rk817_charge_get_otg5v_regulator(struct rk817_charger *charge)
+{
+	int ret;
+
+	charge->otg5v_rdev = devm_regulator_get(charge->dev, "otg_switch");
+	if (IS_ERR(charge->otg5v_rdev)) {
+		ret = PTR_ERR(charge->otg5v_rdev);
+		dev_warn(charge->dev, "failed to get otg regulator: %d\n", ret);
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -1431,6 +1423,11 @@ static int rk817_charge_parse_dt(struct rk817_charger *charge)
 		dev_err(dev, "otg5v_suspend_enable missing!\n");
 	}
 
+	ret = of_property_read_u32(np, "gate_function_disable",
+				   &pdata->gate_function_disable);
+	if (ret < 0)
+		dev_err(dev, "gate_function_disable missing!\n");
+
 	if (!is_battery_exist(charge))
 		pdata->virtual_power = 1;
 
@@ -1452,25 +1449,10 @@ static int rk817_charge_parse_dt(struct rk817_charger *charge)
 			dev_err(dev, "invalid dc det gpio!\n");
 			return -EINVAL;
 		}
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-		if (!of_find_property(np, "chg_led_gpio", &ret)) {
-			DBG("not support charge led\n");
-			pdata->chg_led_pin = 0;
-		} else {
-			pdata->chg_led_pin = of_get_named_gpio_flags(np,
-							"chg_led_gpio",
-							0, &flags);
-			if (gpio_is_valid(pdata->chg_led_pin)) {
-				DBG("support charge led\n");
-				pdata->chg_led_on =
-					(flags & OF_GPIO_ACTIVE_LOW) ? 0 : 1;
-			}
-		}
-#endif
 	}
 
 	DBG("input_current:%d\n"
-	    "input_min_voltage: %d\n"
+		"input_min_voltage: %d\n"
 	    "chrg_current:%d\n"
 	    "chrg_voltage:%d\n"
 	    "sample_res:%d\n"
@@ -1634,6 +1616,7 @@ static int rk817_charge_probe(struct platform_device *pdev)
 		dev_err(charge->dev, "charge parse dt failed!\n");
 		return ret;
 	}
+	rk817_charge_get_otg5v_regulator(charge);
 
 	rk817_charge_pre_init(charge);
 
@@ -1661,6 +1644,11 @@ static int rk817_charge_probe(struct platform_device *pdev)
 		goto irq_fail;
 	}
 
+	if (charge->pdata->extcon) {
+		schedule_delayed_work(&charge->host_work, 0);
+		schedule_delayed_work(&charge->usb_work, 0);
+	}
+
 	rk817_chage_debug(charge);
 	DBG("driver version: %s\n", CHARGE_DRIVER_VERSION);
 
@@ -1676,11 +1664,6 @@ irq_fail:
 	cancel_delayed_work_sync(&charge->irq_work);
 	destroy_workqueue(charge->usb_charger_wq);
 	destroy_workqueue(charge->dc_charger_wq);
-
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	cancel_delayed_work_sync(&charge->led_work);
-	destroy_workqueue(charge->led_wq);
-#endif
 
 	if (charge->pdata->extcon) {
 		extcon_unregister_notifier(charge->cable_edev,
@@ -1765,10 +1748,6 @@ static void rk817_charger_shutdown(struct platform_device *dev)
 	cancel_delayed_work_sync(&charge->irq_work);
 	flush_workqueue(charge->usb_charger_wq);
 	flush_workqueue(charge->dc_charger_wq);
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
-	cancel_delayed_work_sync(&charge->led_work);
-	destroy_workqueue(charge->led_wq);
-#endif
 
 	if (charge->pdata->extcon) {
 		extcon_unregister_notifier(charge->cable_edev,
@@ -1815,6 +1794,6 @@ static void __exit rk817_charge_exit(void)
 }
 module_exit(rk817_charge_exit);
 
+MODULE_DESCRIPTION("RK817 Charge driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("shengfeixu <xsf@rock-chips.com>");
-MODULE_DESCRIPTION("rk817 charge driver");
+MODULE_ALIAS("platform:rk817-charger");
