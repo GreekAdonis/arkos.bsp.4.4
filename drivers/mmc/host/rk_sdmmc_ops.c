@@ -26,6 +26,14 @@
 #define BLKSZ		512
 
 struct mmc_card	*this_card = NULL;
+EXPORT_SYMBOL(this_card);
+
+void rk_emmc_set_card(struct mmc_card *card)
+{
+	this_card = card;
+	pr_info("rk_emmc_set_card: card set to %p\n", card);
+}
+EXPORT_SYMBOL(rk_emmc_set_card);
 enum emmc_area_type {
 	MMC_DATA_AREA_MAIN,
 	MMC_DATA_AREA_BOOT1,
@@ -139,8 +147,11 @@ int rk_emmc_transfer(u8 *buffer, unsigned addr, unsigned blksz, int write)
 
 	struct scatterlist sg;
 
-	if(!this_card)
+	if(!this_card) {
+		pr_err("rk_emmc_transfer: this_card is NULL!\n");
 		return -EIO;
+	}
+	pr_debug("rk_emmc_transfer: addr=0x%x, blksz=%u, write=%d\n", addr, blksz, write);
 
 	mrq.cmd = &cmd;
 	mrq.data = &data;

@@ -2560,39 +2560,76 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 	 * if the card is being re-initialized, just send it.  CMD52
 	 * should be ignored by SD/eMMC cards.
 	 */
-#ifdef MMC_STANDARD_PROBE
-	sdio_reset(host);
-	mmc_go_idle(host);
+	if (host->caps2 & MMC_CAP2_WIFI_RK915 ||
+	    host->restrict_caps) {
+		printk(KERN_INFO "%s: RK915/restrict_caps path: caps2=0x%x, restrict_caps=0x%x\n",
+			 mmc_hostname(host), host->caps2, host->restrict_caps);
+		if (host->restrict_caps & RESTRICT_CARD_TYPE_SDIO) {
+			printk(KERN_INFO "%s: calling sdio_reset\n", mmc_hostname(host));
+			sdio_reset(host);
+		}
 
-	mmc_send_if_cond(host, host->ocr_avail);
+		printk(KERN_INFO "%s: calling mmc_go_idle\n", mmc_hostname(host));
+		mmc_go_idle(host);
 
-	/* Order's important: probe SDIO, then SD, then MMC */
-	if (!mmc_attach_sdio(host))
-		return 0;
-	if (!mmc_attach_sd(host))
-		return 0;
-	if (!mmc_attach_mmc(host))
-		return 0;
-#else
-	if (host->restrict_caps & RESTRICT_CARD_TYPE_SDIO)
+		if (host->restrict_caps &
+		    (RESTRICT_CARD_TYPE_SDIO | RESTRICT_CARD_TYPE_SD)) {
+			printk(KERN_INFO "%s: calling mmc_send_if_cond\n", mmc_hostname(host));
+			mmc_send_if_cond(host, host->ocr_avail);
+		}
+		/* Order's important: probe SDIO, then SD, then MMC */
+		if ((host->restrict_caps & RESTRICT_CARD_TYPE_SDIO)) {
+			printk(KERN_INFO "%s: attempting mmc_attach_sdio (restrict_caps path)\n",
+				 mmc_hostname(host));
+			if (!mmc_attach_sdio(host)) {
+				printk(KERN_INFO "%s: mmc_attach_sdio succeeded\n", mmc_hostname(host));
+				return 0;
+			}
+			printk(KERN_INFO "%s: mmc_attach_sdio failed\n", mmc_hostname(host));
+		}
+		if ((host->restrict_caps & RESTRICT_CARD_TYPE_SD) &&
+		     !mmc_attach_sd(host))
+			return 0;
+		if ((host->restrict_caps & RESTRICT_CARD_TYPE_EMMC) &&
+		     !mmc_attach_mmc(host)) {
+			/* Set this_card for vendor storage */
+			extern void rk_emmc_set_card(struct mmc_card *card);
+			if (host->card)
+				rk_emmc_set_card(host->card);
+			return 0;
+		}
+		/* For RK915 with restricted_caps unset, default to SDIO probe */
+		if (host->caps2 & MMC_CAP2_WIFI_RK915 && !host->restrict_caps) {
+			printk(KERN_INFO "%s: RK915-only path: attempting mmc_attach_sdio\n",
+				 mmc_hostname(host));
+			sdio_reset(host);
+			mmc_go_idle(host);
+			mmc_send_if_cond(host, host->ocr_avail);
+			if (!mmc_attach_sdio(host)) {
+				printk(KERN_INFO "%s: RK915 mmc_attach_sdio succeeded\n", mmc_hostname(host));
+				return 0;
+			}
+			printk(KERN_INFO "%s: RK915 mmc_attach_sdio failed\n", mmc_hostname(host));
+		}
+	} else {
 		sdio_reset(host);
+		mmc_go_idle(host);
 
-	mmc_go_idle(host);
-
-	if (host->restrict_caps &
-	    (RESTRICT_CARD_TYPE_SDIO | RESTRICT_CARD_TYPE_SD))
 		mmc_send_if_cond(host, host->ocr_avail);
-	/* Order's important: probe SDIO, then SD, then MMC */
-	if ((host->restrict_caps & RESTRICT_CARD_TYPE_SDIO) &&
-	    !mmc_attach_sdio(host))
-		return 0;
-	if ((host->restrict_caps & RESTRICT_CARD_TYPE_SD) &&
-	     !mmc_attach_sd(host))
-		return 0;
-	if ((host->restrict_caps & RESTRICT_CARD_TYPE_EMMC) &&
-	     !mmc_attach_mmc(host))
-		return 0;
-#endif
+
+		/* Order's important: probe SDIO, then SD, then MMC */
+		if (!mmc_attach_sdio(host))
+			return 0;
+		if (!mmc_attach_sd(host))
+			return 0;
+		if (!mmc_attach_mmc(host)) {
+			/* Set this_card for vendor storage */
+			extern void rk_emmc_set_card(struct mmc_card *card);
+			if (host->card)
+				rk_emmc_set_card(host->card);
+			return 0;
+		}
+	}
 	mmc_power_off(host);
 	return -EIO;
 }

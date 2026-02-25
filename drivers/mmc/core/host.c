@@ -304,6 +304,14 @@ int mmc_of_parse(struct mmc_host *host)
 		host->restrict_caps |= RESTRICT_CARD_TYPE_SDIO;
 	if (of_property_read_bool(np, "supports-emmc"))
 		host->restrict_caps |= RESTRICT_CARD_TYPE_EMMC;
+	if (of_property_read_bool(np, "supports-rk915")) {
+		host->caps2 |= MMC_CAP2_WIFI_RK915;
+		dev_info(host->parent, "supports-rk915 property detected, caps2=0x%x\n",
+			 host->caps2);
+	}
+
+	dev_info(host->parent, "mmc_of_parse: restrict_caps=0x%x, caps2=0x%x\n",
+		 host->restrict_caps, host->caps2);
 
 	host->dsr_req = !of_property_read_u32(np, "dsr", &host->dsr);
 	if (host->dsr_req && (host->dsr & ~0xffff)) {

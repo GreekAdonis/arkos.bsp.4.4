@@ -297,6 +297,7 @@ struct mmc_host {
 #define MMC_CAP2_SDIO_IRQ_NOTHREAD (1 << 17)
 #define MMC_CAP2_NO_WRITE_PROTECT (1 << 18)	/* No physical write protect pin, assume that card is always read-write */
 #define MMC_CAP2_HS400_ES         (1 << 20) /* Host supports enhanced strobe */
+#define MMC_CAP2_WIFI_RK915       (1 << 28) /* Host supports WIFI RK915 */
 
 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
 

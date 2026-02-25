@@ -963,7 +963,8 @@ static int mmc_sdio_resume(struct mmc_host *host)
 	mmc_claim_host(host);
 
 	/* Restore power if needed */
-	if (!mmc_card_keep_power(host)) {
+	if (!mmc_card_keep_power(host) &&
+	    !(host->caps2 & MMC_CAP2_WIFI_RK915)) {
 		mmc_power_up(host, host->card->ocr);
 		/*
 		 * Tell runtime PM core we just powered up the card,
@@ -1106,44 +1107,57 @@ int mmc_attach_sdio(struct mmc_host *host)
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
 
+	printk(KERN_INFO "%s: mmc_attach_sdio called\n", mmc_hostname(host));
 	err = mmc_send_io_op_cond(host, 0, &ocr);
+	printk(KERN_INFO "%s: mmc_send_io_op_cond returned %d, ocr=0x%x\n",
+		 mmc_hostname(host), err, ocr);
 	if (err)
 		return err;
 
+	printk(KERN_INFO "%s: calling mmc_attach_bus\n", mmc_hostname(host));
 	mmc_attach_bus(host, &mmc_sdio_ops);
 	if (host->ocr_avail_sdio)
 		host->ocr_avail = host->ocr_avail_sdio;
 
 
+	printk(KERN_INFO "%s: calling mmc_select_voltage\n", mmc_hostname(host));
 	rocr = mmc_select_voltage(host, ocr);
+	printk(KERN_INFO "%s: mmc_select_voltage returned 0x%x\n", mmc_hostname(host), rocr);
 
 	/*
 	 * Can we support the voltage(s) of the card(s)?
 	 */
 	if (!rocr) {
 		err = -EINVAL;
+		printk(KERN_INFO "%s: ERROR: rocr is 0, voltage not supported\n", mmc_hostname(host));
 		goto err;
 	}
 
 	/*
 	 * Detect and init the card.
 	 */
+	printk(KERN_INFO "%s: calling mmc_sdio_init_card\n", mmc_hostname(host));
 	err = mmc_sdio_init_card(host, rocr, NULL, 0);
+	printk(KERN_INFO "%s: mmc_sdio_init_card returned %d\n", mmc_hostname(host), err);
 	if (err)
 		goto err;
 
 	card = host->card;
+	printk(KERN_INFO "%s: card initialized, card=%p\n", mmc_hostname(host), card);
 
 	/*
 	 * Enable runtime PM only if supported by host+card+board
 	 */
 	if (host->caps & MMC_CAP_POWER_OFF_CARD) {
+		printk(KERN_INFO "%s: enabling runtime PM\n", mmc_hostname(host));
 		/*
 		 * Let runtime PM core know our card is active
 		 */
 		err = pm_runtime_set_active(&card->dev);
-		if (err)
+		if (err) {
+			printk(KERN_INFO "%s: ERROR: pm_runtime_set_active failed: %d\n", mmc_hostname(host), err);
 			goto remove;
+		}
 
 		/*
 		 * Enable runtime PM for this card
@@ -1156,6 +1170,7 @@ int mmc_attach_sdio(struct mmc_host *host)
 	 * the ocr.
 	 */
 	funcs = (ocr & 0x70000000) >> 28;
+	printk(KERN_INFO "%s: SDIO card has %d functions\n", mmc_hostname(host), funcs);
 	card->sdio_funcs = 0;
 
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
@@ -1182,7 +1197,9 @@ int mmc_attach_sdio(struct mmc_host *host)
 			tmp->device = card->cis.device;
 		} else {
 #endif
+			printk(KERN_INFO "%s: calling sdio_init_func for function %d\n", mmc_hostname(host), i + 1);
 			err = sdio_init_func(host->card, i + 1);
+			printk(KERN_INFO "%s: sdio_init_func for function %d returned %d\n", mmc_hostname(host), i + 1, err);
 			if (err)
 				goto remove;
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
@@ -1198,8 +1215,10 @@ int mmc_attach_sdio(struct mmc_host *host)
 	/*
 	 * First add the card to the driver model...
 	 */
+	printk(KERN_INFO "%s: calling mmc_add_card\n", mmc_hostname(host));
 	mmc_release_host(host);
 	err = mmc_add_card(host->card);
+	printk(KERN_INFO "%s: mmc_add_card returned %d\n", mmc_hostname(host), err);
 	if (err)
 		goto remove_added;
 
@@ -1207,11 +1226,14 @@ int mmc_attach_sdio(struct mmc_host *host)
 	 * ...then the SDIO functions.
 	 */
 	for (i = 0;i < funcs;i++) {
+		printk(KERN_INFO "%s: calling sdio_add_func for function %d\n", mmc_hostname(host), i);
 		err = sdio_add_func(host->card->sdio_func[i]);
+		printk(KERN_INFO "%s: sdio_add_func for function %d returned %d\n", mmc_hostname(host), i, err);
 		if (err)
 			goto remove_added;
 	}
 
+	printk(KERN_INFO "%s: mmc_attach_sdio SUCCESS\n", mmc_hostname(host));
 	mmc_claim_host(host);
 	return 0;
 

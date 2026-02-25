@@ -51,6 +51,8 @@ allowed_warnings = set([
     "bounds.c:15", # kernel/bounds.c:15:6: warning: no previous prototype for ‘foo’
     "cpufeature.h:157", # arch/arm64/include/asm/cpufeature.h:157:68: warning: signed and unsigned type in conditional expression
     "sched.h:1211", # include/linux/sched.h:1211:1: warning: type qualifiers ignored on function return type
+    "module.h:136", # include/linux/module.h:136:14: warning: 'cleanup_module' specifies less restrictive attribute than its target
+    "module.h:130", # include/linux/module.h:130:13: warning: 'init_module' specifies less restrictive attribute than its target
     "halphyrf_8188e_ce.c:2208", # drivers/net/wireless/rockchip_wlan/rtl8189es/hal/phydm/rtl8188e/halphyrf_8188e_ce.c:2208:1: warning: the frame size of 1056 bytes is larger than 1024 bytes
     "halphyrf_8723b_ce.c:2879", # drivers/net/wireless/rockchip_wlan/rtl8723bu/hal/phydm/rtl8723b/halphyrf_8723b_ce.c:2879:1: warning: the frame size of 1056 bytes is larger than 1024 bytes
  ])
