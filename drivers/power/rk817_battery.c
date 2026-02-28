@@ -1924,6 +1924,7 @@ static void rk817_bat_low_gpio_set(struct rk817_battery_device *battery, int on)
  *   - dsoc <= threshold%  OR  voltage <= (pwroff_thresd + 50mV)
  * and NOT charging.
  * Turn OFF otherwise.
+ * Note: When charging, do not control LED to avoid conflict with charger driver.
  */
 static void rk817_bat_update_batlow_gpio(struct rk817_battery_device *battery)
 {
@@ -1934,10 +1935,18 @@ static void rk817_bat_update_batlow_gpio(struct rk817_battery_device *battery)
 	if (!rk817_bat_low_gpio_available(battery))
 		return;
 
+
+    /*
+    * When charging, skip low-battery LED control to avoid conflict
+    * with charger driver's chg_led_gpio. The charger driver will
+    * control the LED to indicate charging status.
+    */
+	if (is_charging)
+		return;
+
 	dsoc_pct = (battery->dsoc + 500) / 1000;
-	if (!is_charging &&
-	    ((dsoc_pct <= battery->bat_low_threshold) ||
-	     (battery->voltage_avg <= pwroff + 50))) {
+	if ((dsoc_pct <= battery->bat_low_threshold) ||
+	    (battery->voltage_avg <= pwroff + 50)) {
 		on = 1;
 	}
 	rk817_bat_low_gpio_set(battery, on);

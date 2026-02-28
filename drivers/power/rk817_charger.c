@@ -278,6 +278,9 @@ struct charger_platform_data {
 	u32 dc_det_level;
 	int dc_det_pin;
 	bool support_dc_det;
+	int chg_led_pin;
+	bool support_chg_led;
+	int chg_led_level;
 	int virtual_power;
 	int sample_res;
 	int otg5v_suspend_enable;
@@ -563,6 +566,17 @@ static void rk817_charge_sys_can_sd_disable(struct rk817_charger *charge)
 	rk817_charge_field_write(charge, SYS_CAN_SD, DISABLE);
 }
 
+static void rk817_charge_set_chg_led(struct rk817_charger *charge, int charging)
+{
+	if (!charge->pdata->support_chg_led)
+		return;
+
+	if (charging)
+		gpio_set_value(charge->pdata->chg_led_pin, charge->pdata->chg_led_level);
+	else
+		gpio_set_value(charge->pdata->chg_led_pin, !charge->pdata->chg_led_level);
+}
+
 static int rk817_charge_get_charge_status(struct rk817_charger *charge)
 {
 	int status;
@@ -572,21 +586,27 @@ static int rk817_charge_get_charge_status(struct rk817_charger *charge)
 	switch (status) {
 	case CHRG_OFF:
 		DBG("charge off...\n");
+		rk817_charge_set_chg_led(charge, 0);
 		break;
 	case DEAD_CHRG:
 		DBG("dead charge...\n");
+		rk817_charge_set_chg_led(charge, 0);
 		break;
 	case TRICKLE_CHRG:
 		DBG("trickle charge...\n");
+		rk817_charge_set_chg_led(charge, 1);
 		break;
 	case CC_OR_CV_CHRG:
 		DBG("CC or CV charge...\n");
+		rk817_charge_set_chg_led(charge, 1);
 		break;
 	case CHRG_TERM:
 		DBG("charge TERM...\n");
+		rk817_charge_set_chg_led(charge, 0);
 		break;
 	case USB_OVER_VOL:
 		DBG("USB over voltage...\n");
+		rk817_charge_set_chg_led(charge, 0);
 		break;
 	case BAT_TMP_ERR:
 		DBG("battery temperature error...\n");
@@ -794,6 +814,7 @@ static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 			charge->prop_status = POWER_SUPPLY_STATUS_DISCHARGING;
 			rk817_charge_set_input_current(charge, INPUT_450MA);
 		}
+		rk817_charge_set_chg_led(charge, 0);
 		power_supply_changed(charge->usb_psy);
 		power_supply_changed(charge->ac_psy);
 		break;
@@ -803,6 +824,7 @@ static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 		charge->prop_status = POWER_SUPPLY_STATUS_CHARGING;
 		if (charge->dc_in == 0)
 			rk817_charge_set_input_current(charge, INPUT_450MA);
+		rk817_charge_set_chg_led(charge, 1);
 		power_supply_changed(charge->usb_psy);
 		power_supply_changed(charge->ac_psy);
 		break;
@@ -817,6 +839,7 @@ static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 		else
 			rk817_charge_set_input_current(charge,
 						       INPUT_1500MA);
+		rk817_charge_set_chg_led(charge, 1);
 		power_supply_changed(charge->usb_psy);
 		power_supply_changed(charge->ac_psy);
 		break;
@@ -825,6 +848,7 @@ static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 		charge->prop_status = POWER_SUPPLY_STATUS_CHARGING;
 		rk817_charge_set_input_current(charge,
 					       charge->max_input_current);
+		rk817_charge_set_chg_led(charge, 1);
 		power_supply_changed(charge->usb_psy);
 		power_supply_changed(charge->ac_psy);
 		break;
@@ -839,12 +863,14 @@ static void rk817_charge_set_chrg_param(struct rk817_charger *charge,
 			rk817_charge_set_input_current(charge, INPUT_450MA);
 			charge->prop_status = POWER_SUPPLY_STATUS_CHARGING;
 		}
+		rk817_charge_set_chg_led(charge, 0);
 		power_supply_changed(charge->usb_psy);
 		power_supply_changed(charge->ac_psy);
 		break;
 	default:
 		charge->prop_status = POWER_SUPPLY_STATUS_DISCHARGING;
 		rk817_charge_set_input_current(charge, INPUT_450MA);
+		rk817_charge_set_chg_led(charge, 0);
 		break;
 	}
 
@@ -931,6 +957,7 @@ static void rk817_charge_dc_det_worker(struct work_struct *work)
 			struct rk817_charger, dc_work.work);
 
 	charger = rk817_charge_get_dc_state(charge);
+
 	if (charger == DC_TYPE_DC_CHARGER) {
 		DBG("detect dc charger in..\n");
 		rk817_charge_set_chrg_param(charge, DC_TYPE_DC_CHARGER);
@@ -1451,6 +1478,26 @@ static int rk817_charge_parse_dt(struct rk817_charger *charge)
 		}
 	}
 
+	/* Parse chg_led_gpio (optional) */
+	if (!of_find_property(np, "chg_led_gpio", &ret)) {
+		pdata->support_chg_led = false;
+		DBG("not support charge led\n");
+	} else {
+		pdata->support_chg_led = true;
+		pdata->chg_led_pin = of_get_named_gpio_flags(np, "chg_led_gpio",
+							    0, &flags);
+		if (gpio_is_valid(pdata->chg_led_pin)) {
+			DBG("support charge led\n");
+			pdata->chg_led_level = (flags & OF_GPIO_ACTIVE_LOW) ?
+					       0 : 1;
+			gpio_request(pdata->chg_led_pin, "chg_led");
+			gpio_direction_output(pdata->chg_led_pin, !pdata->chg_led_level);
+		} else {
+			dev_err(dev, "invalid chg led gpio!\n");
+			pdata->support_chg_led = false;
+		}
+	}
+
 	DBG("input_current:%d\n"
 		"input_min_voltage: %d\n"
 	    "chrg_current:%d\n"
@@ -1616,6 +1663,7 @@ static int rk817_charge_probe(struct platform_device *pdev)
 		dev_err(charge->dev, "charge parse dt failed!\n");
 		return ret;
 	}
+	
 	rk817_charge_get_otg5v_regulator(charge);
 
 	rk817_charge_pre_init(charge);
