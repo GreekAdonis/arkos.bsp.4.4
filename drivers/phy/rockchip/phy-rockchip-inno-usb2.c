@@ -33,6 +33,7 @@
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/mfd/syscon.h>
 #include <linux/usb/of.h>
 #include <linux/usb/otg.h>
@@ -215,6 +216,8 @@ struct rockchip_usb2phy_cfg {
  * @vbus_attached: otg device vbus status.
  * @vbus_always_on: otg vbus is always powered on.
  * @vbus_enabled: vbus regulator status.
+ * @switch_gpio: GPIO descriptor for USB signal routing switch.
+ * @ext_supply: regulator for external USB device power supply.
  * @bypass_uart_en: usb bypass uart enable, passed from DT.
  * @bvalid_irq: IRQ number assigned for vbus valid rise detection.
  * @ls_irq: IRQ number assigned for linestate detection.
@@ -245,6 +248,8 @@ struct rockchip_usb2phy_port {
 	bool		vbus_attached;
 	bool		vbus_always_on;
 	bool		vbus_enabled;
+	struct gpio_desc	*switch_gpio;
+	struct regulator	*ext_supply;
 	bool		bypass_uart_en;
 	int		bvalid_irq;
 	int		ls_irq;
@@ -960,6 +965,135 @@ err0:
 }
 static DEVICE_ATTR_RW(otg_mode);
 
+/*
+ * Helper to find OTG port
+ */
+static struct rockchip_usb2phy_port *
+rockchip_usb2phy_find_switch_port(struct rockchip_usb2phy *rphy)
+{
+	unsigned int i;
+
+	for (i = 0; i < rphy->phy_cfg->num_ports; i++) {
+		if (rphy->ports[i].port_id == USB2PHY_PORT_OTG)
+			return &rphy->ports[i];
+	}
+	return NULL;
+}
+
+static ssize_t usb_switch_gpio_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct rockchip_usb2phy *rphy = dev_get_drvdata(dev);
+	struct rockchip_usb2phy_port *rport;
+
+	rport = rockchip_usb2phy_find_switch_port(rphy);
+	if (!rport || !rport->switch_gpio)
+		return sprintf(buf, "unsupported\n");
+
+	return sprintf(buf, "%d\n",
+		       gpiod_get_value_cansleep(rport->switch_gpio));
+}
+
+static ssize_t usb_switch_gpio_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct rockchip_usb2phy *rphy = dev_get_drvdata(dev);
+	struct rockchip_usb2phy_port *rport;
+	unsigned int val;
+	int ret;
+
+	rport = rockchip_usb2phy_find_switch_port(rphy);
+	if (!rport || !rport->switch_gpio)
+		return -ENOTSUPP;
+
+	ret = kstrtouint(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	gpiod_set_value_cansleep(rport->switch_gpio, val ? 1 : 0);
+	dev_info(dev, "switch_gpio set to %d\n", val ? 1 : 0);
+
+	return count;
+}
+static DEVICE_ATTR_RW(usb_switch_gpio);
+
+static ssize_t usb_switch_ext_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct rockchip_usb2phy *rphy = dev_get_drvdata(dev);
+	struct rockchip_usb2phy_port *rport;
+
+	rport = rockchip_usb2phy_find_switch_port(rphy);
+	if (!rport || !rport->ext_supply)
+		return sprintf(buf, "unsupported\n");
+
+	return sprintf(buf, "%d\n", regulator_is_enabled(rport->ext_supply));
+}
+
+static ssize_t usb_switch_ext_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct rockchip_usb2phy *rphy = dev_get_drvdata(dev);
+	struct rockchip_usb2phy_port *rport;
+	unsigned int val;
+	int ret;
+
+	rport = rockchip_usb2phy_find_switch_port(rphy);
+	if (!rport || !rport->ext_supply)
+		return -ENOTSUPP;
+
+	ret = kstrtouint(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	if (val)
+		ret = regulator_enable(rport->ext_supply);
+	else
+		ret = regulator_disable(rport->ext_supply);
+
+	if (ret) {
+		dev_err(dev, "failed to %s ext-supply: %d\n",
+			val ? "enable" : "disable", ret);
+		return ret;
+	}
+	dev_info(dev, "ext-supply %s\n", val ? "enabled" : "disabled");
+
+	return count;
+}
+static DEVICE_ATTR_RW(usb_switch_ext);
+
+static struct attribute *usb2_phy_switch_attrs[] = {
+	&dev_attr_usb_switch_gpio.attr,
+	&dev_attr_usb_switch_ext.attr,
+	NULL,
+};
+
+static struct attribute_group usb2_phy_switch_attr_group = {
+	.name = NULL,
+	.attrs = usb2_phy_switch_attrs,
+};
+
+/*
+ * Check if we should be in USB host mode.
+ * Returns true if:
+ *   - EXTCON_USB_HOST or EXTCON_USB_VBUS_EN is set, OR
+ *   - switch_gpio exists and is low (internal device mode)
+ */
+static bool rockchip_usb2phy_is_host_mode(struct rockchip_usb2phy *rphy,
+					  struct rockchip_usb2phy_port *rport)
+{
+	if (extcon_get_cable_state_(rphy->edev, EXTCON_USB_HOST) > 0 ||
+	    extcon_get_cable_state_(rphy->edev, EXTCON_USB_VBUS_EN) > 0)
+		return true;
+
+	if (rport->switch_gpio && gpiod_get_value_cansleep(rport->switch_gpio) == 0)
+		return true;
+
+	return false;
+}
+
 /* Group all the usb2 phy attributes */
 static struct attribute *usb2_phy_attrs[] = {
 	&dev_attr_otg_mode.attr,
@@ -1006,9 +1140,7 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
 		}
 		/* fall through */
 	case OTG_STATE_B_IDLE:
-		if (extcon_get_cable_state_(rphy->edev, EXTCON_USB_HOST) > 0 ||
-		    extcon_get_cable_state_(rphy->edev,
-					    EXTCON_USB_VBUS_EN) > 0) {
+		if (rockchip_usb2phy_is_host_mode(rphy, rport)) {
 			dev_dbg(&rport->phy->dev, "usb otg host connect\n");
 			rport->state = OTG_STATE_A_HOST;
 			rphy->chg_state = USB_CHG_STATE_UNDEFINED;
@@ -1097,7 +1229,7 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
 		}
 		break;
 	case OTG_STATE_A_HOST:
-		if (extcon_get_cable_state_(rphy->edev, EXTCON_USB_HOST) == 0) {
+		if (!rockchip_usb2phy_is_host_mode(rphy, rport)) {
 			dev_dbg(&rport->phy->dev, "usb otg host disconnect\n");
 			rport->state = OTG_STATE_B_IDLE;
 			mutex_unlock(&rport->mutex);
@@ -1612,6 +1744,35 @@ static int rockchip_usb2phy_otg_port_init(struct rockchip_usb2phy *rphy,
 		rport->vbus = NULL;
 	}
 
+	/*
+	 * Get optional switch GPIO for USB signal routing.
+	 * Some devices use a GPIO to multiplex USB signals between
+	 * an external USB port and an internal device (like WiFi).
+	 * Default to internal device (GPIO low) on init.
+	 */
+	rport->switch_gpio = devm_gpiod_get_optional(&rport->phy->dev, "switch",
+						     GPIOD_OUT_LOW);
+	if (IS_ERR(rport->switch_gpio)) {
+		if (PTR_ERR(rport->switch_gpio) != -ENOENT)
+			dev_warn(&rport->phy->dev, "failed to get switch GPIO: %ld\n",
+				 PTR_ERR(rport->switch_gpio));
+		rport->switch_gpio = NULL;
+	} else if (rport->switch_gpio) {
+		gpiod_set_value_cansleep(rport->switch_gpio, 0);
+		dev_info(&rport->phy->dev, "USB switch GPIO initialized, default to internal device\n");
+	}
+
+	rport->ext_supply = devm_regulator_get_optional(&rport->phy->dev, "ext");
+	if (IS_ERR(rport->ext_supply)) {
+		rport->ext_supply = NULL;
+	} else if (rport->ext_supply) {
+		ret = regulator_enable(rport->ext_supply);
+		if (ret)
+			dev_warn(rphy->dev, "failed to enable ext-supply: %d\n", ret);
+		else
+			dev_info(rphy->dev, "ext-supply regulator initialized, default enabled\n");
+	}
+
 	rport->mode = of_usb_get_dr_mode_by_phy(child_np, -1);
 	if (rport->mode == USB_DR_MODE_HOST ||
 	    rport->mode == USB_DR_MODE_UNKNOWN) {
@@ -1892,6 +2053,14 @@ next_child:
 	if (ret) {
 		dev_err(dev, "Cannot create sysfs group: %d\n", ret);
 		goto put_child;
+	}
+
+	/* Create sysfs for USB switch control */
+	if (rockchip_usb2phy_find_switch_port(rphy)) {
+		ret = sysfs_create_group(&dev->kobj, &usb2_phy_switch_attr_group);
+		if (ret)
+			dev_warn(dev, "failed to create usb_switch sysfs: %d\n",
+				 ret);
 	}
 
 	ret = rockchip_usb2phy_clk480m_register(rphy);
