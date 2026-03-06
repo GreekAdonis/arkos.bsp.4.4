@@ -214,6 +214,16 @@ config LEDS_GPIO
 	  defined as platform devices and/or OpenFirmware platform devices.
 	  The code to use these bindings can be selected below.
 
+config LEDS_ARKOS4CLONE
+	tristate "LED Support for Arkos4Clone GPIO LEDs"
+	depends on LEDS_CLASS
+	depends on GPIOLIB || COMPILE_TEST
+	help
+	  This option enables support for the Arkos4Clone GPIO LEDs.
+	  Supports up to 4 optional GPIO LEDs: battery-red, battery-blue,
+	  charger-red, charger-blue. Each LED can be independently configured
+	  via device tree. GPIOs can be shared between multiple LEDs.
+
 config LEDS_LP3944
 	tristate "LED Support for N.S. LP3944 (Fun Light) I2C chip"
 	depends on LEDS_CLASS

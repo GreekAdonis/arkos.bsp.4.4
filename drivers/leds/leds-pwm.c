@@ -23,6 +23,7 @@
 #include <linux/leds_pwm.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
+#include <linux/power_supply.h>
 
 struct led_pwm_data {
 	struct led_classdev	cdev;
@@ -32,6 +33,10 @@ struct led_pwm_data {
 	unsigned int		period;
 	int			duty;
 	bool			can_sleep;
+	/* battery brightness scaling */
+	bool			battery_scale;
+	struct delayed_work	battery_work;
+	struct power_supply	*psy;
 };
 
 struct led_pwm_priv {
@@ -81,6 +86,68 @@ static void led_pwm_set(struct led_classdev *led_cdev,
 		__led_pwm_set(led_dat);
 }
 
+static void led_pwm_battery_work(struct work_struct *work)
+{
+	struct led_pwm_data *led_dat =
+		container_of(to_delayed_work(work), struct led_pwm_data, battery_work);
+	union power_supply_propval val;
+	int capacity, brightness;
+
+	if (!led_dat->psy || !led_dat->battery_scale)
+		return;
+
+	if (power_supply_get_property(led_dat->psy, POWER_SUPPLY_PROP_CAPACITY, &val))
+		goto reschedule;
+
+	capacity = val.intval;
+	if (capacity < 0)
+		capacity = 0;
+	if (capacity > 100)
+		capacity = 100;
+
+	/*
+	 * Brightness mapping:
+	 *   51-100% -> 255 (full brightness)
+	 *   30-50%  -> 140 (dim)
+	 *   0-29%   -> 0   (off)
+	 */
+	if (capacity >= 51)
+		brightness = 255;
+	else if (capacity >= 30)
+		brightness = 140;
+	else
+		brightness = 0;
+
+	led_pwm_set(&led_dat->cdev, brightness);
+
+reschedule:
+	schedule_delayed_work(&led_dat->battery_work, msecs_to_jiffies(5000));
+}
+
+static int led_pwm_battery_init(struct device *dev, struct led_pwm_data *led_dat)
+{
+	led_dat->psy = power_supply_get_by_name("battery");
+	if (!led_dat->psy) {
+		dev_info(dev, "battery power supply not found, battery_scale disabled\n");
+		return -ENODEV;
+	}
+
+	INIT_DELAYED_WORK(&led_dat->battery_work, led_pwm_battery_work);
+	schedule_delayed_work(&led_dat->battery_work, msecs_to_jiffies(1000));
+
+	dev_info(dev, "battery_scale enabled for %s\n", led_dat->cdev.name);
+	return 0;
+}
+
+static void led_pwm_battery_exit(struct led_pwm_data *led_dat)
+{
+	cancel_delayed_work_sync(&led_dat->battery_work);
+	if (led_dat->psy) {
+		power_supply_put(led_dat->psy);
+		led_dat->psy = NULL;
+	}
+}
+
 static inline size_t sizeof_pwm_leds_priv(int num_leds)
 {
 	return sizeof(struct led_pwm_priv) +
@@ -90,9 +157,14 @@ static inline size_t sizeof_pwm_leds_priv(int num_leds)
 static void led_pwm_cleanup(struct led_pwm_priv *priv)
 {
 	while (priv->num_leds--) {
-		led_classdev_unregister(&priv->leds[priv->num_leds].cdev);
-		if (priv->leds[priv->num_leds].can_sleep)
-			cancel_work_sync(&priv->leds[priv->num_leds].work);
+		struct led_pwm_data *led_dat = &priv->leds[priv->num_leds];
+		
+		if (led_dat->battery_scale)
+			led_pwm_battery_exit(led_dat);
+		
+		led_classdev_unregister(&led_dat->cdev);
+		if (led_dat->can_sleep)
+			cancel_work_sync(&led_dat->work);
 	}
 }
 
@@ -159,6 +231,7 @@ static int led_pwm_create_of(struct device *dev, struct led_pwm_priv *priv)
 	memset(&led, 0, sizeof(led));
 
 	for_each_child_of_node(dev->of_node, child) {
+		const char *state;
 		led.name = of_get_property(child, "label", NULL) ? :
 			   child->name;
 
@@ -172,6 +245,23 @@ static int led_pwm_create_of(struct device *dev, struct led_pwm_priv *priv)
 		if (ret) {
 			of_node_put(child);
 			break;
+		}
+
+		/* Handle default-state property */
+		state = of_get_property(child, "default-state", NULL);
+		if (state) {
+			struct led_pwm_data *led_data = &priv->leds[priv->num_leds - 1];
+			if (!strcmp(state, "on"))
+				led_pwm_set(&led_data->cdev, led_data->cdev.max_brightness);
+			else if (!strcmp(state, "off"))
+				led_pwm_set(&led_data->cdev, LED_OFF);
+		}
+
+		/* Handle battery-scale property */
+		if (of_property_read_bool(child, "battery-scale")) {
+			struct led_pwm_data *led_data = &priv->leds[priv->num_leds - 1];
+			led_data->battery_scale = true;
+			led_pwm_battery_init(dev, led_data);
 		}
 	}
 
