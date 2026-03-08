@@ -55,9 +55,30 @@ module_param_named(dbg_level, dbg_enable, int, 0644);
 #define OUT_VOLUME	(0x03)
 
 #ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
-#define RK817_DAC_VOLUME \
-	SOC_DOUBLE_R("Playback Volume", RK817_CODEC_DDAC_VOLL, RK817_CODEC_DDAC_VOLR, 0, 0xff, 1)
-static const DECLARE_TLV_DB_MINMAX(rk817_vol_tlv, -9500, -0);
+/*
+ * 动态音量范围控制
+ * RK817音量寄存器: 0=0dB, 每步-0.375dB, 最大255=-95dB
+ * 通过DTS的 volume-min-db 限制最小音量
+ * 例如：volume-min-db = <45> 表示最小-45dB
+ */
+
+/* TLV用于显示dB值（会在probe中更新） */
+static DECLARE_TLV_DB_SCALE(rk817_vol_tlv, -9500, 375, 0);
+
+/* 前向声明 */
+static int rk817_vol_get(struct snd_kcontrol *kcontrol,
+			 struct snd_ctl_elem_value *ucontrol);
+static int rk817_vol_put(struct snd_kcontrol *kcontrol,
+			 struct snd_ctl_elem_value *ucontrol);
+
+static const struct snd_kcontrol_new rk817_dac_controls[] = {
+	SOC_DOUBLE_R_EXT_TLV("Playback Volume",
+		RK817_CODEC_DDAC_VOLL, RK817_CODEC_DDAC_VOLR,
+		0, 255, 1,
+		rk817_vol_get, rk817_vol_put, rk817_vol_tlv),
+	SOC_DOUBLE_R("Record Volume", RK817_CODEC_DADC_VOLL,
+		RK817_CODEC_DADC_VOLR, 0, 0xFF, 1),
+};
 #endif
 
 /*
@@ -72,11 +93,6 @@ static const DECLARE_TLV_DB_MINMAX(rk817_vol_tlv, -9500, -0);
 
 #define CODEC_SET_SPK 1
 #define CODEC_SET_HP 2
-
-#ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
-#define RK817_ADC_VOLUME \
-	SOC_DOUBLE_R("Record Volume", RK817_CODEC_DADC_VOLL, RK817_CODEC_DADC_VOLR, 0, 0xFF, 1)
-#endif
 
 
 struct rk817_codec_priv {
@@ -105,7 +121,63 @@ struct rk817_codec_priv {
 	struct gpio_desc *hp_ctl_gpio;
 	int spk_mute_delay;
 	int hp_mute_delay;
+
+	/* 动态音量最小值配置（单位：0.01dB），最大值固定为0dB */
+	int volume_min_db;
 };
+
+#ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
+/*
+ * 自定义音量get/put回调
+ * 将用户空间0-255映射到实际寄存器范围
+ * 例如：volume-min-db = <45> 时，寄存器范围 0-120
+ * 用户0% -> 寄存器120(-45dB)
+ * 用户100% -> 寄存器0(0dB)
+ */
+static int rk817_vol_get(struct snd_kcontrol *kcontrol,
+			 struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct rk817_codec_priv *rk817 = snd_soc_codec_get_drvdata(codec);
+	unsigned int reg_val;
+	int vol_max_reg, user_val;
+
+	reg_val = snd_soc_read(codec, RK817_CODEC_DDAC_VOLL);
+
+	/* 计算寄存器最大值：reg_max = -min_db / 0.375 */
+	vol_max_reg = (-rk817->volume_min_db * 8) / (3 * 100);
+	vol_max_reg = clamp(vol_max_reg, 1, 255);
+
+	/* 寄存器值 -> 用户空间值 */
+	user_val = ((vol_max_reg - reg_val) * 255) / vol_max_reg;
+	user_val = clamp(user_val, 0, 255);
+
+	ucontrol->value.integer.value[0] = user_val;
+	ucontrol->value.integer.value[1] = user_val;
+	return 0;
+}
+
+static int rk817_vol_put(struct snd_kcontrol *kcontrol,
+			 struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct rk817_codec_priv *rk817 = snd_soc_codec_get_drvdata(codec);
+	int user_val = ucontrol->value.integer.value[0];
+	int vol_max_reg, reg_val;
+
+	/* 计算寄存器最大值 */
+	vol_max_reg = (-rk817->volume_min_db * 8) / (3 * 100);
+	vol_max_reg = clamp(vol_max_reg, 1, 255);
+
+	/* 用户空间值 -> 寄存器值 */
+	reg_val = vol_max_reg - (user_val * vol_max_reg) / 255;
+	reg_val = clamp(reg_val, 0, vol_max_reg);
+
+	snd_soc_write(codec, RK817_CODEC_DDAC_VOLL, reg_val);
+	snd_soc_write(codec, RK817_CODEC_DDAC_VOLR, reg_val);
+	return 1;
+}
+#endif
 
 static const struct reg_default rk817_reg_defaults[] = {
 	{ RK817_CODEC_DTOP_VUCTL, 0x003 },
@@ -165,14 +237,6 @@ static const struct reg_default rk817_reg_defaults[] = {
 	{ RK817_CODEC_DI2S_TXCR2, 0x17 },
 	{ RK817_CODEC_DI2S_TXCR3_TXCMD, 0x00 },
 };
-
-#ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
-static const struct snd_kcontrol_new rk817_dac_controls[] = {
-	SOC_DOUBLE_R_RANGE_TLV("Playback Volume", RK817_CODEC_DDAC_VOLL,
-		RK817_CODEC_DDAC_VOLR, 0, 0x00, 0xff, 1, rk817_vol_tlv),
-	RK817_ADC_VOLUME
-};
-#endif
 
 static bool rk817_volatile_register(struct device *dev, unsigned int reg)
 {
@@ -1203,6 +1267,17 @@ static int rk817_probe(struct snd_soc_codec *codec)
 
 	rk817_reset(codec);
 
+#ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
+	/*
+	 * 更新TLV显示范围
+	 * DECLARE_TLV_DB_SCALE创建的数组格式: [类型, 长度, min_dB, step]
+	 * rk817_vol_tlv[2] = min_dB
+	 */
+	rk817_vol_tlv[2] = rk817->volume_min_db;
+	dev_info(codec->dev, "%s: volume range %d dB to 0 dB\n",
+		 __func__, rk817->volume_min_db / 100);
+#endif
+
 	snd_soc_add_codec_controls(codec, rk817_snd_path_controls,
 				   ARRAY_SIZE(rk817_snd_path_controls));
 	return 0;
@@ -1347,6 +1422,23 @@ static int rk817_codec_parse_dt_property(struct device *dev,
 
 	rk817->adc_for_loopback =
 			of_property_read_bool(node, "adc-for-loopback");
+
+	/*
+	 * 解析动态音量最小值
+	 * DTS中使用正整数表示dB绝对值，如 volume-min-db = <45>; 表示 -45dB
+	 * 驱动内部转换为负值并使用0.01dB单位
+	 * 最大音量固定为0dB（硬件最大值）
+	 */
+	ret = of_property_read_u32(node, "volume-min-db", &rk817->volume_min_db);
+	if (ret < 0) {
+		DBG("%s() Can not read property volume-min-db, use default 95dB\n",
+		    __func__);
+		rk817->volume_min_db = 95;  /* 默认-95dB */
+	}
+	/* 转换为负值并以0.01dB单位存储 */
+	rk817->volume_min_db = -rk817->volume_min_db * 100;
+
+	DBG("volume range: %d dB to 0 dB\n", rk817->volume_min_db / 100);
 
 	return 0;
 }
