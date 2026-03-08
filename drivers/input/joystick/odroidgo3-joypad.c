@@ -68,7 +68,7 @@
 */
 /*----------------------------------------------------------------------------*/
 struct bt_adc {
-	/* go2-mode: direct IIO channel per axis */
+	/* direct-adc: direct IIO channel per axis */
 	struct iio_channel *channel;
 	/* report value (mV) */
 	int value;
@@ -91,6 +91,7 @@ struct bt_adc {
 struct analog_mux {
 	/* IIO ADC Channel : amux connect channel */
 	struct iio_channel *iio_ch;
+	struct iio_channel *iio_ch_r;	/* split-adc: right stick */
 	/* analog mux select(a,b) gpio */
 	int sel_a_gpio, sel_b_gpio;
 	/* analog mux enable gpio */
@@ -126,8 +127,9 @@ struct joypad {
 	/* analog button */
 	struct bt_adc *adcs;
 
-	/* go2-mode: bypass AMUX and read joy_x/joy_y directly */
-	bool go2_mode;
+	/* direct-adc: bypass AMUX and read joy_x/joy_y directly */
+	bool direct_adc_mode;
+	bool split_adc_mode;	/* dual ADC channels (joy_left/joy_right) */
 
 	/* skip entire right stick pair (ABS_RX/ABS_RY) */
 	bool skip_absr;
@@ -283,36 +285,33 @@ __setup("button-adc-deadzone=", button_adc_deadzone);
 
 /*----------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
-static int joypad_amux_select(struct analog_mux *amux, int channel)
+static int joypad_amux_select(struct analog_mux *amux, int channel, bool split_adc_mode)
 {
 
     /* select mux channel: only if we really have an enable GPIO */
     if (gpio_is_valid(amux->en_gpio)) {
         gpio_set_value(amux->en_gpio, 0);
 	}
-		
-	switch(channel) {
-		case 0:	/* EVENT (ABS_RY) */
-			gpio_set_value(amux->sel_a_gpio, 0);
-			gpio_set_value(amux->sel_b_gpio, 0);
-			break;
-		case 1:	/* EVENT (ABS_RX) */
-			gpio_set_value(amux->sel_a_gpio, 0);
-			gpio_set_value(amux->sel_b_gpio, 1);
-			break;
-		case 2:	/* EVENT (ABS_Y) */
-			gpio_set_value(amux->sel_a_gpio, 1);
-			gpio_set_value(amux->sel_b_gpio, 0);
-			break;
-		case 3:	/* EVENT (ABS_X) */
-			gpio_set_value(amux->sel_a_gpio, 1);
-			gpio_set_value(amux->sel_b_gpio, 1);
-			break;
-		default:
-			/* amux disable only if enable GPIO exists */
-			if (gpio_is_valid(amux->en_gpio))
-				gpio_set_value(amux->en_gpio, 1);
-			return -1;
+
+	if (split_adc_mode) {
+		/* split-adc: ch0/ch2=Y, ch1/ch3=X */
+		gpio_set_value(amux->sel_a_gpio, (channel == 1 || channel == 3) ? 1 : 0);
+		gpio_set_value(amux->sel_b_gpio, (channel == 1 || channel == 3) ? 1 : 0);
+	} else {
+		switch(channel) {
+			case 0:	gpio_set_value(amux->sel_a_gpio, 0);
+				gpio_set_value(amux->sel_b_gpio, 0); break;
+			case 1:	gpio_set_value(amux->sel_a_gpio, 0);
+				gpio_set_value(amux->sel_b_gpio, 1); break;
+			case 2:	gpio_set_value(amux->sel_a_gpio, 1);
+				gpio_set_value(amux->sel_b_gpio, 0); break;
+			case 3:	gpio_set_value(amux->sel_a_gpio, 1);
+				gpio_set_value(amux->sel_b_gpio, 1); break;
+			default:
+				if (gpio_is_valid(amux->en_gpio))
+					gpio_set_value(amux->en_gpio, 1);
+				return -1;
+		}
 	}
 	/* mux swtiching speed : 35ns(on) / 9ns(off) */
 	usleep_range(1, 2);
@@ -325,18 +324,28 @@ static int joypad_adc_read(struct joypad *joypad, struct bt_adc *adc)
 	int value;
 
 	/*
-	 * go2-mode: one channel per axis ("joy_x", "joy_y"), no AMUX switching.
+	 * direct-adc: one channel per axis ("joy_x", "joy_y"), no AMUX switching.
+	 * split-adc: dual ADC (joy_left/joy_right), AMUX for X/Y select.
 	 * legacy: AMUX select + read from "amux_adc".
 	 */
-	if (joypad->go2_mode) {
+	if (joypad->direct_adc_mode) {
 		if (!adc->channel)
 			return 0;
 		if (iio_read_channel_processed(adc->channel, &value))
 			return 0;
+	} else if (joypad->split_adc_mode) {
+		if (!joypad->amux)
+			return 0;
+		if (joypad_amux_select(joypad->amux, adc->amux_ch, true))
+			return 0;
+		if (adc->amux_ch <= 1)
+			iio_read_channel_processed(joypad->amux->iio_ch_r, &value);
+		else
+			iio_read_channel_processed(joypad->amux->iio_ch, &value);
 	} else {
 		if (!joypad->amux)
 			return 0;
-		if (joypad_amux_select(joypad->amux, adc->amux_ch))
+		if (joypad_amux_select(joypad->amux, adc->amux_ch, false))
 			return 0;
 		if (iio_read_channel_processed(joypad->amux->iio_ch, &value))
 			return 0;
@@ -495,9 +504,9 @@ static ssize_t joypad_store_adc_cal(struct device *dev,
 		for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
 			struct bt_adc *adc = &joypad->adcs[nbtn];
 			/*
-			 * go2-mode is fixed 2-axis (ABS_X/ABS_Y).  Do not apply skip_absr/skip_absl.
+			 * direct-adc is fixed 2-axis (ABS_X/ABS_Y).  Do not apply skip_absr/skip_absl.
 			 */
-			if (!joypad->go2_mode) {
+			if (!joypad->direct_adc_mode) {
 				/* skip whole right stick pair: index 0 and 1 */
 				if (joypad->skip_absr && (nbtn == 0 || nbtn == 1))
 					continue;
@@ -585,8 +594,8 @@ static ssize_t joypad_show_amux_debug(struct device *dev,
 	ssize_t pos;
 	int value;
 
-	if (joypad->go2_mode)
-		return sprintf(buf, "go2-mode: no amux\n");
+	if (joypad->direct_adc_mode)
+		return sprintf(buf, "direct-adc: no amux\n");
 
 	if (!joypad->amux_count)
 		return sprintf(buf, "adc disabled\n");
@@ -597,11 +606,16 @@ static ssize_t joypad_show_amux_debug(struct device *dev,
 	if (joypad->enable)
 		joypad->enable = false;
 
-	if (joypad_amux_select(amux, joypad->debug_ch))
+	if (joypad_amux_select(amux, joypad->debug_ch, joypad->split_adc_mode))
 		goto err_out;
 
-	if (iio_read_channel_processed(amux->iio_ch, &value))
-		goto err_out;
+	if (joypad->split_adc_mode && joypad->debug_ch <= 1) {
+		if (iio_read_channel_processed(amux->iio_ch_r, &value))
+			goto err_out;
+	} else {
+		if (iio_read_channel_processed(amux->iio_ch, &value))
+			goto err_out;
+	}
 
 	pos = sprintf(buf, "amux ch[%d], adc scale = %d, adc value = %d\n",
 			joypad->debug_ch, joypad->bt_adc_scale,
@@ -796,10 +810,10 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
 		return;
 
 	/*
-	 * go2-mode: fixed 2 axes (ABS_X/ABS_Y).  Simpler path without pair-skip logic.
+	 * direct-adc: fixed 2 axes (ABS_X/ABS_Y).  Simpler path without pair-skip logic.
 	 * Keep the same deadzone/tuning/clamp/invert behavior.
 	 */
-	if (joypad->go2_mode) {
+	if (joypad->direct_adc_mode) {
 		for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
 			struct bt_adc *adc = &joypad->adcs[nbtn];
 
@@ -912,7 +926,7 @@ static void joypad_open(struct input_polled_dev *poll_dev)
 	}
 	for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
 		struct bt_adc *adc = &joypad->adcs[nbtn];
-		if (!joypad->go2_mode) {
+		if (!joypad->direct_adc_mode) {
 			if (joypad->skip_absr && (nbtn == 0 || nbtn == 1))
 				continue; /* don't touch right stick pair */
 			if (joypad->skip_absl && (nbtn == 2 || nbtn == 3))
@@ -974,10 +988,20 @@ static int joypad_amux_setup(struct device *dev, struct joypad *joypad)
 		return -ENOMEM;
 	}
 	amux = joypad->amux;
-	amux->iio_ch = devm_iio_channel_get(dev, "amux_adc");
-	if (IS_ERR(amux->iio_ch)) {
-		dev_err(dev, "iio channel get error\n");
-		return -EINVAL;
+
+	if (joypad->split_adc_mode) {
+		amux->iio_ch = devm_iio_channel_get(dev, "joy_left");
+		amux->iio_ch_r = devm_iio_channel_get(dev, "joy_right");
+		if (IS_ERR(amux->iio_ch) || IS_ERR(amux->iio_ch_r)) {
+			dev_err(dev, "split-adc: iio channel get error\n");
+			return -EINVAL;
+		}
+	} else {
+		amux->iio_ch = devm_iio_channel_get(dev, "amux_adc");
+		if (IS_ERR(amux->iio_ch)) {
+			dev_err(dev, "iio channel get error\n");
+			return -EINVAL;
+		}
 	}
 	if (!amux->iio_ch->indio_dev)
 		return -ENXIO;
@@ -1053,10 +1077,10 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 	}
 
 	/*
-	 * go2-mode: fixed 2 axes (ABS_X/ABS_Y), direct channels "joy_x"/"joy_y".
+	 * direct-adc: fixed 2 axes (ABS_X/ABS_Y), direct channels "joy_x"/"joy_y".
 	 * Do NOT require amux-count/amux-channel-mapping/amux_* gpios/amux_adc.
 	 */
-	if (joypad->go2_mode) {
+	if (joypad->direct_adc_mode) {
 		enum iio_chan_type type;
 		struct bt_adc *adc;
 
@@ -1064,7 +1088,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 		adc = &joypad->adcs[0];
 		adc->channel = devm_iio_channel_get(dev, "joy_x");
 		if (IS_ERR(adc->channel)) {
-			dev_err(dev, "go2-mode: iio channel 'joy_x' get error\n");
+			dev_err(dev, "direct-adc: iio channel 'joy_x' get error\n");
 			return -EINVAL;
 		}
 		if (!adc->channel->indio_dev)
@@ -1072,7 +1096,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 		if (iio_get_channel_type(adc->channel, &type))
 			return -EINVAL;
 		if (type != IIO_VOLTAGE) {
-			dev_err(dev, "go2-mode: incompatible joy_x channel type %d\n", type);
+			dev_err(dev, "direct-adc: incompatible joy_x channel type %d\n", type);
 			return -EINVAL;
 		}
 
@@ -1083,7 +1107,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 			adc->max *= adc->scale;
 			adc->min *= adc->scale;
 		}
-		adc->amux_ch = 0; /* unused in go2-mode */
+		adc->amux_ch = 0; /* unused in direct-adc */
 		adc->invert = joypad->invert_absx;
 		adc->report_type = ABS_X;
 		if (device_property_read_u32(dev, "abs_x-p-tuning", &adc->tuning_p))
@@ -1095,7 +1119,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 		adc = &joypad->adcs[1];
 		adc->channel = devm_iio_channel_get(dev, "joy_y");
 		if (IS_ERR(adc->channel)) {
-			dev_err(dev, "go2-mode: iio channel 'joy_y' get error\n");
+			dev_err(dev, "direct-adc: iio channel 'joy_y' get error\n");
 			return -EINVAL;
 		}
 		if (!adc->channel->indio_dev)
@@ -1103,7 +1127,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 		if (iio_get_channel_type(adc->channel, &type))
 			return -EINVAL;
 		if (type != IIO_VOLTAGE) {
-			dev_err(dev, "go2-mode: incompatible joy_y channel type %d\n", type);
+			dev_err(dev, "direct-adc: incompatible joy_y channel type %d\n", type);
 			return -EINVAL;
 		}
 
@@ -1114,7 +1138,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 			adc->max *= adc->scale;
 			adc->min *= adc->scale;
 		}
-		adc->amux_ch = 1; /* unused in go2-mode */
+		adc->amux_ch = 1; /* unused in direct-adc */
 		adc->invert = joypad->invert_absy;
 		adc->report_type = ABS_Y;
 		if (device_property_read_u32(dev, "abs_y-p-tuning", &adc->tuning_p))
@@ -1484,11 +1508,15 @@ static int joypad_dt_parse(struct device *dev, struct joypad *joypad)
 	/* initialize value check from boot.ini */
 	joypad_setup_value_check(dev, joypad);
 
-	joypad->go2_mode = device_property_present(dev, "go2-mode");
+	joypad->direct_adc_mode = device_property_present(dev, "direct-adc");
+	joypad->split_adc_mode = device_property_present(dev, "split-adc");
 
-	if (joypad->go2_mode) {
-		/* go2-mode always 2 axes: ABS_X/ABS_Y */
+	if (joypad->direct_adc_mode) {
+		/* direct-adc always 2 axes: ABS_X/ABS_Y */
 		joypad->amux_count = 2;
+	} else if (joypad->split_adc_mode) {
+		/* split-adc always 4 axes: dual ADC */
+		joypad->amux_count = 4;
 	} else {
 		device_property_read_u32(dev, "amux-count",
 					&joypad->amux_count);
@@ -1531,15 +1559,15 @@ static int joypad_dt_parse(struct device *dev, struct joypad *joypad)
 			return error;
 
 		/*
-		 * go2-mode: no AMUX hardware.  Skip amux setup.
+		 * direct-adc: no AMUX hardware.  Skip amux setup.
 		 * legacy: keep amux setup.
 		 */
-		if (!joypad->go2_mode) {
+		if (!joypad->direct_adc_mode) {
 			error = joypad_amux_setup(dev, joypad);
 			if (error)
 				return error;
 		} else {
-			dev_info(dev, "%s : go2-mode enabled (joy_x/joy_y direct)\n", __func__);
+			dev_info(dev, "%s : direct-adc enabled (joy_x/joy_y direct)\n", __func__);
 		}
 	} else {
 		dev_info(dev,
