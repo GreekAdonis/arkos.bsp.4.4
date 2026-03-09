@@ -2562,7 +2562,7 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 	 */
 	if (host->caps2 & MMC_CAP2_WIFI_RK915 ||
 	    host->restrict_caps) {
-		printk(KERN_INFO "%s: RK915/restrict_caps path: caps2=0x%x, restrict_caps=0x%x\n",
+		printk(KERN_INFO "%s: restricted card detection: caps2=0x%x, restrict_caps=0x%x\n",
 			 mmc_hostname(host), host->caps2, host->restrict_caps);
 		if (host->restrict_caps & RESTRICT_CARD_TYPE_SDIO) {
 			printk(KERN_INFO "%s: calling sdio_reset\n", mmc_hostname(host));

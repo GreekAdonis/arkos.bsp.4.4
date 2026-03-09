@@ -306,6 +306,10 @@ static int rockchip_cpufreq_cluster_init(int cpu, struct cluster_info *cluster)
 	rockchip_get_scale_volt_sel(dev, "cpu_leakage", reg_name,
 				    bin, cluster->process,
 				    &cluster->scale, &cluster->volt_sel);
+
+	/* Output CPU binning info for ES */
+	pr_info("es_info: cpu_bin=%d process=%d scale=%d volt_sel=%d\n",
+		 bin, cluster->process, cluster->scale, cluster->volt_sel);
 np_err:
 	of_node_put(np);
 	return ret;
