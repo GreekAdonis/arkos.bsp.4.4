@@ -172,6 +172,7 @@ struct joypad {
 	/* Optional GPIO vibrator */
 	int rumble_gpio;
 	bool rumble_active_low;
+	bool has_rumble;
 };
 
 /* ---------- Rumble helpers (GPIO + PWM fallback) ---------- */
@@ -1414,18 +1415,21 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 		}
 	}
 
-	/* Rumble setip*/
+	/* Rumble setup - only register if rumble device is available */
 	device_property_read_u32(dev, "rumble-boost-weak", &boost_weak);
 	device_property_read_u32(dev, "rumble-boost-strong", &boost_strong);
 	joypad->boost_weak = boost_weak;
 	joypad->boost_strong = boost_strong;
 	dev_info(dev, "Boost = %d, %d",boost_weak, boost_strong);
-	input_set_capability(input, EV_FF, FF_RUMBLE);
-	error = input_ff_create_memless(input, joypad, rumble_play_effect);
-	if (error) {
-		dev_err(dev, "unable to register rumble, err=%d\n",
-			error);
-		return error;
+	
+	if (joypad->has_rumble) {
+		input_set_capability(input, EV_FF, FF_RUMBLE);
+		error = input_ff_create_memless(input, joypad, rumble_play_effect);
+		if (error) {
+			dev_err(dev, "unable to register rumble, err=%d\n",
+				error);
+			return error;
+		}
 	}
 	
 
@@ -1667,23 +1671,28 @@ static int joypad_probe(struct platform_device *pdev)
 		return error;
 	}
 
+	/* Rumble setup (optional) - must be done before input_setup
+	 *  - If rumble-gpio is valid: use GPIO path.
+	 *  - Else: try PWM path, but don't fail probe if unavailable.
+	 */
+	INIT_WORK(&joypad->play_work, pwm_vibrator_play_work);
+	if (gpio_is_valid(joypad->rumble_gpio)) {
+		joypad->has_rumble = true;
+	} else {
+		error = joypad_rumble_setup(dev, joypad);
+		if (error) {
+			dev_info(dev, "rumble not available, continuing without rumble support\n");
+			joypad->has_rumble = false;
+		} else {
+			joypad->has_rumble = true;
+		}
+	}
+
 	/* poll input device setup */
 	error = joypad_input_setup(dev, joypad);
 	if (error) {
 		dev_err(dev, "input setup failed!(err = %d)\n", error);
 		return error;
-	}
-	
-	/* Rumble setup (optional):
-	 *  - If rumble-gpio is valid: just init work and use GPIO path.
-	 *  - Else: try PWM path, but don't fail probe if unavailable.
-	 */
-	INIT_WORK(&joypad->play_work, pwm_vibrator_play_work);
-	if (!gpio_is_valid(joypad->rumble_gpio)) {
-		error = joypad_rumble_setup(dev, joypad);
-		if (error) {
-			dev_info(dev, "rumble not available, continuing without rumble support\n");
-		}
 	}
 
 	dev_info(dev, "%s : probe success\n", __func__);
