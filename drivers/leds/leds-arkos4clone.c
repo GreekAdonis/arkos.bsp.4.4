@@ -1319,6 +1319,46 @@ static const struct attribute_group arkos4clone_led_attr_group = {
 	.attrs = arkos4clone_led_attrs,
 };
 
+/* ===== 电源管理 ===== */
+
+static int arkos4clone_led_suspend(struct device *dev)
+{
+	struct arkos4clone_led_priv *priv = dev_get_drvdata(dev);
+
+	if (!priv)
+		return 0;
+
+	/* 关闭 joyled */
+	if (priv->has_pulse_led && gpio_is_valid(priv->pulse_gpio)) {
+		send_pulse_count(priv->pulse_gpio, PULSE_MODE_OFF);
+	}
+
+	return 0;
+}
+
+static int arkos4clone_led_resume(struct device *dev)
+{
+	struct arkos4clone_led_priv *priv = dev_get_drvdata(dev);
+
+	/* 只在驱动完全初始化后处理 */
+	if (!priv || !priv->has_pulse_led || !gpio_is_valid(priv->pulse_gpio))
+		return 0;
+
+	/*
+	 * 发送复位脉冲 (11脉冲) 初始化外部控制器
+	 * 然后重置 pulse_mode = -1
+	 * 这样 LED 核心恢复 brightness 时会重新发送脉冲
+	 */
+	send_pulse_count(priv->pulse_gpio, 11);
+	priv->pulse_mode = -1;
+
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(arkos4clone_led_pm_ops,
+			 arkos4clone_led_suspend,
+			 arkos4clone_led_resume);
+
 /**
  * arkos4clone_led_remove - 平台设备移除函数
  * @pdev: 平台设备指针
@@ -1476,6 +1516,7 @@ static struct platform_driver arkos4clone_led_driver = {
 	.driver = {
 		.name = "arkos4clone-led",
 		.of_match_table = arkos4clone_led_of_match,
+		.pm = &arkos4clone_led_pm_ops,
 	},
 };
 
