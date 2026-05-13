@@ -16,7 +16,7 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "GameConsole R36S Say Souce Panel 4";
+	model = "GameConsole R36S Soy Sauce Panel 4";
 	compatible = "rockchip,rk3326-r36s-sauce-panel4-linux","rockchip,rk3326";
 	
 	chosen {
