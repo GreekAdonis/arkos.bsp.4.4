@@ -320,6 +320,7 @@
 		power-supply = <&vcc_lcd>;
 		/* Rev 0.2 LCD reset gpio GPIO3.C0 */
 		reset-gpios = <&gpio0 RK_PC1 GPIO_ACTIVE_LOW>;
+		enable-gpios = <&gpio0 RK_PB5 GPIO_ACTIVE_LOW>;
 		prepare-delay-ms = <120>;
 		reset-delay-ms = <200>;
 		init-delay-ms = <20>;
@@ -746,7 +747,7 @@
 	status = "okay";
 	
 	/* SDIO I/O Voltage */
-	vccio1-supply = <&vcc_3v3>;
+	vccio1-supply = <&vcc1v8_soc>;
 	/* SDMMC I/O Voltage */
 	vccio2-supply = <&vccio_sd>;
 	/* CAM I/O Voltage */
@@ -815,8 +816,9 @@
 	cap-sd-highspeed;
 	supports-sd;
 	card-detect-delay = <800>;
+	max-frequency = <150000000>;
 	ignore-pm-notify;
-	cd-gpios = <&gpio0 RK_PA3 GPIO_ACTIVE_LOW>; /*[> CD GPIO <]*/
+	// cd-gpios = <&gpio0 RK_PA3 GPIO_ACTIVE_LOW>;
 	sd-uhs-sdr12;
 	sd-uhs-sdr25;
 	sd-uhs-sdr50;
