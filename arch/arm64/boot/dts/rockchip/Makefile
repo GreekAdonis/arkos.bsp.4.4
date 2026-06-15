@@ -1,5 +1,5 @@
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-a10mini-linux.dtb
-dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-a10mini-v2-linux.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-a10mini-v4-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-d007-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-dc35v-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-dc40v-linux.dtb
