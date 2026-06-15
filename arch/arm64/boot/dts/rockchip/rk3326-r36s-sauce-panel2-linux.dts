@@ -729,7 +729,7 @@
 			use-ext-amplifier;
 			hp-volume = <20>;
 			spk-volume = <3>;
-			volume-min-db = <54>;  /* -90*0.5 = -45 */
+			volume-min-db = <72>;  /* -90*0.5 = -45 */
 			status = "okay";
 		};
 	};
