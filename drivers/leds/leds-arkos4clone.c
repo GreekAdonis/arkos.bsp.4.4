@@ -189,6 +189,7 @@ struct arkos4clone_led {
 	struct work_struct work;
 	int new_level;
 	int index;
+	int battery_threshold;
 	struct arkos4clone_led_priv *priv;
 };
 
@@ -205,21 +206,31 @@ static DEVICE_ATTR_RW(mode);
 /* LED classdev battery_threshold 属性前向声明 */
 static ssize_t bicolor_threshold_show(struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t bicolor_threshold_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
-static DEVICE_ATTR_RW(bicolor_threshold);
+
+static struct device_attribute dev_attr_bicolor_battery_threshold = {
+	.attr = { .name = "battery_threshold", .mode = 0644 },
+	.show = bicolor_threshold_show,
+	.store = bicolor_threshold_store,
+};
 
 static ssize_t ind_threshold_show(struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t ind_threshold_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
-static DEVICE_ATTR_RW(ind_threshold);
+
+static struct device_attribute dev_attr_ind_battery_threshold = {
+	.attr = { .name = "battery_threshold", .mode = 0644 },
+	.show = ind_threshold_show,
+	.store = ind_threshold_store,
+};
 
 /* LED classdev 专用属性组 */
 static struct attribute *bicolor_led_attrs[] = {
-	&dev_attr_bicolor_threshold.attr,
+	&dev_attr_bicolor_battery_threshold.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(bicolor_led);
 
 static struct attribute *ind_led_attrs[] = {
-	&dev_attr_ind_threshold.attr,
+	&dev_attr_ind_battery_threshold.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(ind_led);
@@ -256,6 +267,7 @@ struct arkos4clone_led_priv {
 	char bicolor_high_color[16];
 	char bicolor_low_color[16];
 	struct led_classdev bicolor_cdev;
+	int bicolor_battery_threshold;
 
 	/* 脉冲 LED */
 	bool has_pulse_led;
@@ -552,7 +564,7 @@ static void arkos4clone_led_set(struct led_classdev *led_cdev,
 
 	/* 阈值模式或充电/充满时，阻止 led-red 和 led-blue 的用户控制 */
 	if ((led->index == LED_RED || led->index == LED_BLUE)) {
-		if (priv->charge_monitoring && (priv->battery_threshold > 0 || priv->charging || priv->full)) {
+		if (priv->charge_monitoring && (led->battery_threshold > 0 || priv->charging || priv->full)) {
 			dev_dbg(priv->dev, "%s control blocked\n", led_cdev->name);
 			return;
 		}
@@ -596,7 +608,7 @@ static void arkos4clone_bicolor_cdev_set(struct led_classdev *led_cdev,
 		container_of(led_cdev, struct arkos4clone_led_priv, bicolor_cdev);
 
 	/* 阈值模式或充电/充满时阻止用户控制 */
-	if (priv->charge_monitoring && (priv->battery_threshold > 0 || priv->charging || priv->full)) {
+	if (priv->charge_monitoring && (priv->bicolor_battery_threshold > 0 || priv->charging || priv->full)) {
 		dev_dbg(priv->dev, "led control blocked\n");
 		return;
 	}
@@ -679,7 +691,7 @@ static int arkos4clone_led_init(struct device *dev,
 	led->cdev.brightness_get = arkos4clone_led_get;
 	led->cdev.max_brightness = 1;
 	led->cdev.brightness = LED_OFF;
-	led->cdev.flags = LED_CORE_SUSPENDRESUME;
+	led->cdev.flags = 0;
 	led->cdev.groups = ind_led_groups;
 
 	ret = led_classdev_register(dev, &led->cdev);
@@ -754,7 +766,7 @@ static int arkos4clone_bicolor_init(struct arkos4clone_led_priv *priv)
 	priv->bicolor_cdev.brightness_set = arkos4clone_bicolor_cdev_set;
 	priv->bicolor_cdev.brightness_get = arkos4clone_bicolor_cdev_get;
 	priv->bicolor_cdev.brightness = 0;	/* 默认：低电平颜色 */
-	priv->bicolor_cdev.flags = LED_CORE_SUSPENDRESUME;
+	priv->bicolor_cdev.flags = 0;
 	priv->bicolor_cdev.groups = bicolor_led_groups;
 
 	ret = led_classdev_register(dev, &priv->bicolor_cdev);
@@ -848,7 +860,7 @@ static int arkos4clone_pulse_led_init(struct arkos4clone_led_priv *priv)
 	priv->pulse_cdev.brightness_set = arkos4clone_pulse_led_set;
 	priv->pulse_cdev.brightness_get = arkos4clone_pulse_led_get;
 	priv->pulse_cdev.max_brightness = 255;
-	priv->pulse_cdev.flags = LED_CORE_SUSPENDRESUME;
+	priv->pulse_cdev.flags = 0;
 	priv->pulse_cdev.groups = joyled_groups;
 
 	ret = devm_led_classdev_register(dev, &priv->pulse_cdev);
@@ -927,21 +939,23 @@ static void arkos4clone_update_charge_leds(struct arkos4clone_led_priv *priv)
 		return;
 	}
 
-	/* 非充电 + 阈值模式：按阈值比较 */
-	if (priv->battery_threshold > 0) {
-		bool above = (priv->battery_capacity >= priv->battery_threshold &&
+	/* 非充电 + 阈值模式：每个 LED 按自己的阈值独立判断 */
+	if (priv->has_bicolor && priv->bicolor_battery_threshold > 0) {
+		bool above = (priv->battery_capacity >= priv->bicolor_battery_threshold &&
 			      priv->battery_capacity >= 0);
+		arkos4clone_bicolor_set(priv, above ? 0 : 1);
+	}
 
-		if (priv->has_bicolor)
-			arkos4clone_bicolor_set(priv, above ? 0 : 1);
+	if (priv->leds[LED_RED].valid && priv->leds[LED_RED].battery_threshold > 0) {
+		bool above = (priv->battery_capacity >= priv->leds[LED_RED].battery_threshold &&
+			      priv->battery_capacity >= 0);
+		arkos4clone_led_set_raw(&priv->leds[LED_RED], above ? 0 : 1);
+	}
 
-		if (priv->leds[LED_RED].valid || priv->leds[LED_BLUE].valid) {
-			if (priv->leds[LED_BLUE].valid)
-				arkos4clone_led_set_raw(&priv->leds[LED_BLUE], above ? 1 : 0);
-			if (priv->leds[LED_RED].valid)
-				arkos4clone_led_set_raw(&priv->leds[LED_RED], above ? 0 : 1);
-		}
-		return;
+	if (priv->leds[LED_BLUE].valid && priv->leds[LED_BLUE].battery_threshold > 0) {
+		bool above = (priv->battery_capacity >= priv->leds[LED_BLUE].battery_threshold &&
+			      priv->battery_capacity >= 0);
+		arkos4clone_led_set_raw(&priv->leds[LED_BLUE], above ? 1 : 0);
 	}
 
 	/* 非充电 + 无阈值：用户控制，不做任何事 */
@@ -1024,7 +1038,10 @@ static void arkos4clone_charge_work(struct work_struct *work)
 	}
 
 	/* 有自动控制逻辑时更新 LED */
-	if (priv->charging || priv->full || priv->battery_threshold > 0)
+	if (priv->charging || priv->full ||
+	    priv->bicolor_battery_threshold > 0 ||
+	    priv->leds[LED_RED].battery_threshold > 0 ||
+	    priv->leds[LED_BLUE].battery_threshold > 0)
 		arkos4clone_update_charge_leds(priv);
 
 reschedule:
@@ -1138,10 +1155,8 @@ static ssize_t status_show(struct device *dev,
 	if (priv->charge_monitoring) {
 		count += scnprintf(buf + count, PAGE_SIZE - count, "charging: %s\n",
 				   priv->full ? "full" : priv->charging ? "yes" : "no");
-		if (priv->battery_threshold > 0)
-			count += scnprintf(buf + count, PAGE_SIZE - count,
-					   "threshold: %d%% (capacity: %d%%)\n",
-					   priv->battery_threshold, priv->battery_capacity);
+		count += scnprintf(buf + count, PAGE_SIZE - count, "capacity: %d%%\n",
+				   priv->battery_capacity);
 	}
 
 	if (priv->has_bicolor) {
@@ -1186,7 +1201,20 @@ static ssize_t battery_threshold_show(struct device *dev,
 				      struct device_attribute *attr, char *buf)
 {
 	struct arkos4clone_led_priv *priv = dev_get_drvdata(dev);
-	return scnprintf(buf, PAGE_SIZE, "%d\n", priv->battery_threshold);
+	int count = 0;
+
+	if (priv->has_bicolor)
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+				   "arkos4clone-led: %d\n", priv->bicolor_battery_threshold);
+	if (priv->leds[LED_RED].valid)
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+				   "led-red: %d\n", priv->leds[LED_RED].battery_threshold);
+	if (priv->leds[LED_BLUE].valid)
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+				   "led-blue: %d\n", priv->leds[LED_BLUE].battery_threshold);
+	if (count == 0)
+		count = scnprintf(buf, PAGE_SIZE, "0\n");
+	return count;
 }
 
 /**
@@ -1220,7 +1248,13 @@ static ssize_t battery_threshold_store(struct device *dev,
 	if (val != 0 && (val % 10 != 0 || val < 10 || val > 90))
 		return -EINVAL;
 
-	priv->battery_threshold = val;
+	/* 同时设置所有电源 LED 的阈值 */
+	if (priv->has_bicolor)
+		priv->bicolor_battery_threshold = val;
+	if (priv->leds[LED_RED].valid)
+		priv->leds[LED_RED].battery_threshold = val;
+	if (priv->leds[LED_BLUE].valid)
+		priv->leds[LED_BLUE].battery_threshold = val;
 
 	if (priv->charge_monitoring)
 		arkos4clone_update_charge_leds(priv);
@@ -1256,7 +1290,7 @@ static ssize_t gpio_store(struct device *dev,
 
 	/* 双色 LED 控制 (led-gpio) */
 	if (priv->has_bicolor && (!strcmp(name, "arkos4clone-led") || !strcmp(name, "led"))) {
-		if (priv->charge_monitoring && (priv->battery_threshold > 0 || priv->charging || priv->full)) {
+		if (priv->charge_monitoring && (priv->bicolor_battery_threshold > 0 || priv->charging || priv->full)) {
 			dev_dbg(dev, "led control blocked\n");
 			return -EBUSY;
 		}
@@ -1270,7 +1304,7 @@ static ssize_t gpio_store(struct device *dev,
 		if (!strcmp(name, led_names[i]) && priv->leds[i].valid) {
 			/* 阈值模式或充电/充满时，阻止 led-red 和 led-blue 的控制 */
 			if ((i == LED_RED || i == LED_BLUE) &&
-			    priv->charge_monitoring && (priv->battery_threshold > 0 || priv->charging || priv->full)) {
+			    priv->charge_monitoring && (priv->leds[i].battery_threshold > 0 || priv->charging || priv->full)) {
 				dev_dbg(dev, "%s control blocked\n", name);
 				return -EBUSY;
 			}
@@ -1400,7 +1434,7 @@ static ssize_t bicolor_threshold_show(struct device *dev,
 {
 	struct arkos4clone_led_priv *priv =
 		container_of(dev_get_drvdata(dev), struct arkos4clone_led_priv, bicolor_cdev);
-	return scnprintf(buf, PAGE_SIZE, "%d\n", priv->battery_threshold);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", priv->bicolor_battery_threshold);
 }
 
 /**
@@ -1434,7 +1468,7 @@ static ssize_t bicolor_threshold_store(struct device *dev,
 	if (val != 0 && (val % 10 != 0 || val < 10 || val > 90))
 		return -EINVAL;
 
-	priv->battery_threshold = val;
+	priv->bicolor_battery_threshold = val;
 	if (priv->charge_monitoring)
 		arkos4clone_update_charge_leds(priv);
 	return count;
@@ -1456,7 +1490,7 @@ static ssize_t ind_threshold_show(struct device *dev,
 {
 	struct arkos4clone_led *led =
 		container_of(dev_get_drvdata(dev), struct arkos4clone_led, cdev);
-	return scnprintf(buf, PAGE_SIZE, "%d\n", led->priv->battery_threshold);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", led->battery_threshold);
 }
 
 /**
@@ -1492,7 +1526,7 @@ static ssize_t ind_threshold_store(struct device *dev,
 	if (val != 0 && (val % 10 != 0 || val < 10 || val > 90))
 		return -EINVAL;
 
-	priv->battery_threshold = val;
+	led->battery_threshold = val;
 	if (priv->charge_monitoring)
 		arkos4clone_update_charge_leds(priv);
 	return count;
@@ -1561,10 +1595,28 @@ static ssize_t mode_store(struct device *dev,
 	/* 查找模式 */
 	for (i = 0; i < ARRAY_SIZE(pulse_mode_map); i++) {
 		if (strcasecmp(mode_str, pulse_mode_map[i].name) == 0) {
+			int brightness_val;
+
 			dev_dbg(dev, "设置模式: %s (脉冲数: %d)\n",
 				pulse_mode_map[i].name, pulse_mode_map[i].mode);
 			send_pulse_count(priv->pulse_gpio, pulse_mode_map[i].mode);
 			priv->pulse_mode = pulse_mode_map[i].mode;
+
+			/* 同步 cdev->brightness，确保 LED 核心 suspend/resume 一致 */
+			switch (pulse_mode_map[i].mode) {
+			case PULSE_MODE_OFF:          brightness_val = 0;   break;
+			case PULSE_MODE_RED:          brightness_val = 14;  break;
+			case PULSE_MODE_RED_GREEN:    brightness_val = 42;  break;
+			case PULSE_MODE_GREEN:        brightness_val = 70;  break;
+			case PULSE_MODE_GREEN_BLUE:   brightness_val = 98;  break;
+			case PULSE_MODE_BLUE:         brightness_val = 126; break;
+			case PULSE_MODE_BLUE_RED:     brightness_val = 154; break;
+			case PULSE_MODE_RED_GREEN_BLUE: brightness_val = 182; break;
+			case PULSE_MODE_BREATHING:    brightness_val = 210; break;
+			case PULSE_MODE_SCROLLING:    brightness_val = 240; break;
+			default:                      brightness_val = 0;   break;
+			}
+			led_cdev->brightness = brightness_val;
 			return count;
 		}
 	}
@@ -1731,11 +1783,11 @@ static int arkos4clone_led_resume(struct device *dev)
 
 	/* 恢复电源灯 */
 	if (priv->has_bicolor || priv->leds[LED_RED].valid || priv->leds[LED_BLUE].valid) {
-		if (priv->battery_threshold > 0) {
-			/* 阈值模式：走阈值逻辑 */
-			arkos4clone_update_charge_leds(priv);
-		} else if (priv->charging || priv->full) {
-			/* 充电/充满：走充电逻辑 */
+		if (priv->bicolor_battery_threshold > 0 ||
+		    priv->leds[LED_RED].battery_threshold > 0 ||
+		    priv->leds[LED_BLUE].battery_threshold > 0 ||
+		    priv->charging || priv->full) {
+			/* 阈值模式或充电/充满：走充电逻辑 */
 			arkos4clone_update_charge_leds(priv);
 		} else {
 			/* 非充电 + 阈值=0：恢复用户之前手动设置的状态
