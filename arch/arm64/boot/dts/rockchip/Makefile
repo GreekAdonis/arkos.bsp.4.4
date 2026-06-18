@@ -31,6 +31,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type3-panel2-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type4-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type5-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-v22-linux.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-v30-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36splus-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36tmax-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36ultra-linux.dtb
@@ -51,6 +52,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-rgb20s-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-xu10-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-rp1-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r40s-linux.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-rgb10max1-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-rgb10max1-linux.dtb
 
 always		:= $(dtb-y)
