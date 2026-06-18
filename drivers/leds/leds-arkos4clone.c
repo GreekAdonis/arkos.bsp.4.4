@@ -1789,6 +1789,18 @@ static int arkos4clone_led_resume(struct device *dev)
 		    priv->charging || priv->full) {
 			/* 阈值模式或充电/充满：走充电逻辑 */
 			arkos4clone_update_charge_leds(priv);
+
+			/* 恢复没有阈值的用户控制 LED（suspend 时被全部点亮）
+			 * 仅在非充电+非充满时恢复，充电/充满时充电逻辑优先 */
+			if (!priv->charging && !priv->full) {
+				if (priv->has_bicolor && priv->bicolor_battery_threshold == 0)
+					arkos4clone_bicolor_set(priv, priv->bicolor_cdev.brightness);
+				for (i = 0; i < MAX_LEDS; i++) {
+					if (priv->leds[i].valid && priv->leds[i].battery_threshold == 0)
+						arkos4clone_led_set_raw(&priv->leds[i],
+									 priv->leds[i].cdev.brightness);
+				}
+			}
 		} else {
 			/* 非充电 + 阈值=0：恢复用户之前手动设置的状态
 			 * cdev->brightness 在 suspend 时未被修改，仍保留用户设置 */
