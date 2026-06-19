@@ -290,11 +290,6 @@
 	1               13
 	>;
 	
-	/delete-node/ opp-408000000;
-	/delete-node/ opp-600000000;
-	/delete-node/ opp-816000000;
-	/delete-node/ opp-1416000000;
-	/delete-node/ opp-1512000000;
 };
 
 &display_subsystem {
@@ -373,20 +368,7 @@
 	status = "okay";
 };
 
-&dmc_opp_table {
-	/delete-node/ opp-194000000;
-	/delete-node/ opp-328000000;
-	/delete-node/ opp-450000000;
-	
-	opp-786000000 {
-		status = "okay";
-	};
-};
 
-&gpu_opp_table {
-	/delete-node/ opp-200000000;
-	/delete-node/ opp-300000000;
-};
 
 &emmc {
 	status = "disabled";

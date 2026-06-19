@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: (GPL-2.0+ OR MIT)
  */
 
-#include "px30.dtsi"
+#include "rk3326-oc.dtsi"
 
 &cru {
 	assigned-clocks = <&cru PLL_NPLL>;

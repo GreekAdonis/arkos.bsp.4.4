@@ -77,6 +77,19 @@
 
 #define FALLBACK_STATIC_TEMPERATURE 55000
 
+unsigned long max_ddrfreq_khz;
+
+static int __init max_ddrfreq_setup(char *__str)
+{
+	unsigned long freq;
+	if (kstrtoul(__str, 10, &freq))
+		return 0;
+	max_ddrfreq_khz = freq * 1000;
+	pr_info("[oga-avs]max_ddrfreq %lu MHz\n", freq);
+	return 0;
+}
+__setup("max_ddrfreq=", max_ddrfreq_setup);
+
 struct freq_map_table {
 	unsigned int min;
 	unsigned int max;
@@ -3347,12 +3360,21 @@ static int rockchip_dmcfreq_add_devfreq(struct rockchip_dmcfreq *dmcfreq)
 	rcu_read_unlock();
 
 	devp->initial_freq = dmcfreq->rate;
+
 	dmcfreq->devfreq = devm_devfreq_add_device(dev, devp,
 						   "dmc_ondemand",
 						   &dmcfreq->ondemand_data);
 	if (IS_ERR(dmcfreq->devfreq)) {
 		dev_err(dev, "failed to add devfreq\n");
 		return PTR_ERR(dmcfreq->devfreq);
+	}
+
+	/* Apply max_ddrfreq limit to devfreq framework (all in Hz) */
+	if (max_ddrfreq_khz > 0) {
+		unsigned long max_freq_hz = max_ddrfreq_khz * 1000;
+		dmcfreq->devfreq->max_freq = max_freq_hz;
+		dmcfreq->devfreq->scaling_max_freq = max_freq_hz;
+		dmcfreq->devfreq->policy.max = max_freq_hz;
 	}
 
 	devm_devfreq_register_opp_notifier(dev, dmcfreq->devfreq);

@@ -50,6 +50,75 @@ struct pvtm_config {
 	struct thermal_zone_device *tz;
 };
 
+extern unsigned long max_ddrfreq_khz;
+extern unsigned long max_gpufreq_khz;
+
+static int opp_bin_sel = 0; /* default 0 = no override */
+static unsigned long max_cpufreq = 1296000;
+
+static int __init opp_bin_sel_setup(char *__str)
+{
+	int r;
+	unsigned long cpufreq;
+
+	if (__str == NULL) {
+		opp_bin_sel = 13; /* default 1.296GHz */
+		return 0;
+	}
+
+	r = kstrtoul(__str, 10, &cpufreq);
+	if (r)
+		return r;
+
+	max_cpufreq = cpufreq * 1000;
+
+	switch (cpufreq) {
+	case 408:
+		opp_bin_sel = 39;
+		break;
+	case 600:
+		opp_bin_sel = 35;
+		break;
+	case 1008:
+		opp_bin_sel = 20;
+		break;
+	case 1200:
+		opp_bin_sel = 16;
+		break;
+	case 1296:
+		opp_bin_sel = 13;
+		break;
+	case 1368:
+		opp_bin_sel = 10;
+		break;
+	case 1416:
+		opp_bin_sel = 8;
+		break;
+	case 1440:
+		opp_bin_sel = 7;
+		break;
+	case 1464:
+		opp_bin_sel = 6;
+		break;
+	case 1488:
+		opp_bin_sel = 5;
+		break;
+	case 1512:
+		opp_bin_sel = 4;
+		break;
+	default:
+		pr_info("[oga-avs]no available cpufreq, set 1.296\n");
+		opp_bin_sel = 13;
+		break;
+	}
+
+	pr_info("[oga-avs]cpufreq %lu, max_cpufreq %lu, opp_bin_sel %d\n",
+		cpufreq, max_cpufreq, opp_bin_sel);
+
+	return 0;
+}
+__setup("max_cpufreq=", opp_bin_sel_setup);
+
 #define PVTM_CH_MAX	8
 #define PVTM_SUB_CH_MAX	8
 static int pvtm_value[PVTM_CH_MAX][PVTM_SUB_CH_MAX];
@@ -508,6 +577,12 @@ void rockchip_of_get_bin_sel(struct device *dev, struct device_node *np,
 				   bin, scale_sel);
 	if (!ret)
 		dev_info(dev, "bin-scale=%d\n", *scale_sel);
+
+	if (!strncmp(dev_name(dev), "cpu0", 4) && opp_bin_sel) {
+		*scale_sel = opp_bin_sel;
+		dev_info(dev, "[oga-avs]bin-scale=%d, dev %s\n",
+			*scale_sel, dev_name(dev));
+	}
 }
 EXPORT_SYMBOL(rockchip_of_get_bin_sel);
 
@@ -725,6 +800,11 @@ int rockchip_adjust_power_scale(struct device *dev, int scale)
 	of_property_read_u32(np, "rockchip,avs-enable", &avs);
 	of_property_read_u32(np, "rockchip,avs", &avs);
 	of_property_read_u32(np, "rockchip,avs-scale", &avs_scale);
+	if (!strncmp(dev_name(dev), "cpu0", 4) && opp_bin_sel) {
+		dev_info(dev, "[oga-avs]set avs_scale : dev %s, avs_scale=%d, maxfreq %ld\n",
+			dev_name(dev), avs_scale, max_cpufreq);
+		avs_scale = opp_bin_sel;
+	}
 	rockchip_adjust_opp_by_irdrop(dev, np, &safe_rate, &max_rate);
 
 	dev_info(dev, "avs=%d\n", avs);
@@ -774,6 +854,8 @@ int rockchip_adjust_power_scale(struct device *dev, int scale)
 					avs_scale);
 				goto out_clk;
 			}
+			if (max_cpufreq > 0 && (max_cpufreq * 1000) > scale_rate)
+				scale_rate = max_cpufreq * 1000;
 			dev_info(dev, "avs scale_rate=%lu\n", scale_rate);
 			ret = rockchip_adjust_opp_table(dev, scale_rate);
 			if (ret)
@@ -788,6 +870,8 @@ int rockchip_adjust_power_scale(struct device *dev, int scale)
 				target_scale);
 			goto out_clk;
 		}
+		if (max_cpufreq > 0 && (max_cpufreq * 1000) > scale_rate)
+			scale_rate = max_cpufreq * 1000;
 		dev_info(dev, "scale_rate=%lu\n", scale_rate);
 		if (avs == 2) {
 			ret = rockchip_cpufreq_set_scale_rate(dev, scale_rate);
@@ -835,6 +919,67 @@ int rockchip_init_opp_table(struct device *dev,
 		dev_err(dev, "Invalid operating-points in device tree.\n");
 		return ret;
 	}
+
+	/* Apply max frequency limit from boot parameters before voltage adjustment */
+	if (!strncmp(dev_name(dev), "cpu", 3) && max_cpufreq > 0) {
+		unsigned long max_rate = max_cpufreq * 1000; /* kHz to Hz */
+		unsigned long rate;
+		int i, count, removed = 0;
+
+		count = dev_pm_opp_get_opp_count(dev);
+		for (i = 0, rate = 0; i < count; i++, rate++) {
+			struct dev_pm_opp *opp_entry;
+			opp_entry = dev_pm_opp_find_freq_ceil(dev, &rate);
+			if (IS_ERR(opp_entry))
+				break;
+			if (rate > max_rate) {
+				dev_pm_opp_remove(dev, rate);
+				removed++;
+			}
+		}
+		if (removed)
+			dev_info(dev, "[oga-avs]limit max to %lu MHz, removed %d OPPs\n",
+				max_cpufreq / 1000, removed);
+	} else if (!strncmp(dev_name(dev), "dmc", 3) && max_ddrfreq_khz > 0) {
+		unsigned long max_rate = max_ddrfreq_khz * 1000;
+		unsigned long rate;
+		int i, count, removed = 0;
+
+		count = dev_pm_opp_get_opp_count(dev);
+		for (i = 0, rate = 0; i < count; i++, rate++) {
+			struct dev_pm_opp *opp_entry;
+			opp_entry = dev_pm_opp_find_freq_ceil(dev, &rate);
+			if (IS_ERR(opp_entry))
+				break;
+			if (rate > max_rate) {
+				dev_pm_opp_remove(dev, rate);
+				removed++;
+			}
+		}
+		if (removed)
+			dev_info(dev, "[oga-avs]limit max to %lu MHz, removed %d OPPs\n",
+				max_ddrfreq_khz, removed);
+	} else if (!strncmp(dev_name(dev), "mali", 4) && max_gpufreq_khz > 0) {
+		unsigned long max_rate = max_gpufreq_khz * 1000;
+		unsigned long rate;
+		int i, count, removed = 0;
+
+		count = dev_pm_opp_get_opp_count(dev);
+		for (i = 0, rate = 0; i < count; i++, rate++) {
+			struct dev_pm_opp *opp_entry;
+			opp_entry = dev_pm_opp_find_freq_ceil(dev, &rate);
+			if (IS_ERR(opp_entry))
+				break;
+			if (rate > max_rate) {
+				dev_pm_opp_remove(dev, rate);
+				removed++;
+			}
+		}
+		if (removed)
+			dev_info(dev, "[oga-avs]limit max to %lu MHz, removed %d OPPs\n",
+				max_gpufreq_khz, removed);
+	}
+
 	rockchip_adjust_power_scale(dev, scale);
 
 	return 0;

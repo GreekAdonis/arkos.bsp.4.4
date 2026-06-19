@@ -56,6 +56,19 @@ static struct monitor_dev_profile mali_mdevp = {
 	.high_temp_adjust = rockchip_monitor_dev_high_temp_adjust,
 };
 
+unsigned long max_gpufreq_khz;
+
+static int __init max_gpufreq_setup(char *__str)
+{
+	unsigned long freq;
+	if (kstrtoul(__str, 10, &freq))
+		return 0;
+	max_gpufreq_khz = freq * 1000;
+	pr_info("[oga-avs]max_gpufreq %lu MHz\n", freq);
+	return 0;
+}
+__setup("max_gpufreq=", max_gpufreq_setup);
+
 /**
  * opp_translate - Translate nominal OPP frequency from devicetree into real
  *                 frequency and core mask
@@ -372,10 +385,30 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 		return -EFAULT;
 
 	if (dp->max_state > 0) {
-		/* Record the maximum frequency possible */
+		/* Record the maximum frequency possible (freq_table in Hz from OPP) */
 		kbdev->gpu_props.props.core_props.gpu_freq_khz_max =
 			dp->freq_table[0] / 1000;
+
+		/* Apply max_gpufreq limit: remove OPPs above the limit
+		 * freq_table[i] is in Hz, max_gpufreq_khz is in kHz */
+		if (max_gpufreq_khz > 0) {
+			int i, j;
+			unsigned long max_freq_hz = max_gpufreq_khz * 1000;
+			for (i = dp->max_state - 1; i >= 0; i--) {
+				if (dp->freq_table[i] > max_freq_hz) {
+					for (j = i; j < dp->max_state - 1; j++)
+						dp->freq_table[j] = dp->freq_table[j + 1];
+					dp->max_state--;
+				}
+			}
+			kbdev->gpu_props.props.core_props.gpu_freq_khz_max =
+				dp->freq_table[0] / 1000;
+			pr_info("[oga-avs]gpu max limited to %lu MHz, OPPs remaining: %d\n",
+				max_gpufreq_khz / 1000, dp->max_state);
+		}
 	};
+
+	/* max_gpufreq OPP removal is now handled in rockchip_init_opp_table() */
 
 	err = kbase_devfreq_init_core_mask_table(kbdev);
 	if (err)

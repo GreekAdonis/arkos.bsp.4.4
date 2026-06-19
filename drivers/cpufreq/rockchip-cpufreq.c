@@ -42,6 +42,7 @@ struct cluster_info {
 	unsigned int threshold_freq;
 	unsigned int scale_rate;
 	unsigned int temp_limit_rate;
+	bool boot_limit_applied;
 	int volt_sel;
 	int scale;
 	int process;
@@ -50,6 +51,30 @@ struct cluster_info {
 	bool is_check_init;
 };
 static LIST_HEAD(cluster_info_list);
+
+static unsigned int boot_cpufreq;
+
+static int __init rockchip_boot_cpufreq_setup(char *__str)
+{
+	unsigned long cpufreq;
+	int ret;
+
+	if (!__str)
+		return 0;
+
+	ret = kstrtoul(__str, 10, &cpufreq);
+	if (ret)
+		return ret;
+
+	/* boot_cpufreq= is specified in MHz, while cpufreq policy uses kHz. */
+	boot_cpufreq = cpufreq * 1000;
+
+	pr_info("[oga-avs]boot_cpufreq %lu, boot_cpufreq_khz %u\n",
+		cpufreq, boot_cpufreq);
+
+	return 0;
+}
+__setup("boot_cpufreq=", rockchip_boot_cpufreq_setup);
 
 static int px30_get_soc_info(struct device *dev, struct device_node *np,
 			     int *bin, int *process)
@@ -378,6 +403,14 @@ static int rockchip_cpufreq_policy_notifier(struct notifier_block *nb,
 
 	if (cluster->scale_rate && cluster->scale_rate < policy->max)
 		cpufreq_verify_within_limits(policy, 0, cluster->scale_rate);
+
+	if (boot_cpufreq && !cluster->boot_limit_applied &&
+	    boot_cpufreq < policy->max) {
+		cpufreq_verify_within_limits(policy, 0, boot_cpufreq);
+		cluster->boot_limit_applied = true;
+		pr_info("[oga-avs]initial cpufreq policy max limited to %u kHz\n",
+			boot_cpufreq);
+	}
 
 	return NOTIFY_OK;
 }
