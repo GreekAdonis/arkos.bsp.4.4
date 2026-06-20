@@ -633,8 +633,6 @@
 				};
 			};
 			
-			
-			
 			dcdc_boost: BOOST {
 				regulator-always-on;
 				regulator-boot-on;
