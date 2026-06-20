@@ -1274,12 +1274,10 @@ static void rk817_bat_init_voltage_kb(struct rk817_battery_device *battery)
 	vcalib1 = rk817_bat_get_vaclib1(battery);
 	delta = vcalib1 - vcalib0;
 
-	/* Sanity check: calibration values must be different and reasonable */
-	if (delta == 0 || abs(delta) > 10000) {
-		dev_warn(battery->dev,
-			 "bad voltage calibration: vcalib0=%d vcalib1=%d, using defaults\n",
-			 vcalib0, vcalib1);
-		/* Use safe defaults that produce reasonable voltage readings */
+	if (delta == 0) {
+		dev_err(battery->dev,
+			"bad voltage calibration: vcalib0=%d vcalib1=%d identical, using defaults\n",
+			vcalib0, vcalib1);
 		battery->voltage_k = 1000;
 		battery->voltage_b = 0;
 		return;
