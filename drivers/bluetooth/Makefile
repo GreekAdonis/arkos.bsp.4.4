@@ -40,3 +40,5 @@ hci_uart-$(CONFIG_BT_HCIUART_QCA)	+= hci_qca.o
 hci_uart-objs				:= $(hci_uart-y)
 
 ccflags-y += -D__CHECK_ENDIAN__
+
+obj-$(CONFIG_SKW_BT)		+= swtbt4l/
