@@ -59,8 +59,12 @@ module_param_named(dbg_level, dbg_enable, int, 0644);
  * 动态音量范围控制
  * RK817音量寄存器: 0=0dB, 每步-0.375dB, 最大255=-95dB
  * 通过DTS的 volume-min-db 限制最小音量
- * 例如：volume-min-db = <45> 表示最小-45dB
+ * 最大输出固定为-6.75dB（寄存器0x12），与上游保持一致
+ * 例如：volume-min-db = <72> 表示范围 -27dB ~ -6.75dB
  */
+
+/* 最大允许输出: -6.75dB (寄存器值 0x12) */
+#define RK817_VOL_MAX_REG 0x12
 
 /* TLV用于显示dB值（会在probe中更新） */
 static DECLARE_TLV_DB_SCALE(rk817_vol_tlv, -9500, 375, 0);
@@ -122,7 +126,7 @@ struct rk817_codec_priv {
 	int spk_mute_delay;
 	int hp_mute_delay;
 
-	/* 动态音量最小值配置（单位：0.01dB），最大值固定为0dB */
+	/* 动态音量最小值配置（单位：0.01dB），最大值固定为-6.75dB */
 	int volume_min_db;
 };
 
@@ -130,9 +134,9 @@ struct rk817_codec_priv {
 /*
  * 自定义音量get/put回调
  * 将用户空间0-255映射到实际寄存器范围
- * 例如：volume-min-db = <45> 时，寄存器范围 0-120
- * 用户0% -> 寄存器120(-45dB)
- * 用户100% -> 寄存器0(0dB)
+ * 寄存器范围: [RK817_VOL_MAX_REG(0x12=-6.75dB), vol_max_reg(由DTS决定)]
+ * 用户0% -> 寄存器vol_max_reg(最安静)
+ * 用户100% -> 寄存器RK817_VOL_MAX_REG(-6.75dB，最大允许输出)
  */
 static int rk817_vol_get(struct snd_kcontrol *kcontrol,
 			 struct snd_ctl_elem_value *ucontrol)
@@ -140,16 +144,17 @@ static int rk817_vol_get(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct rk817_codec_priv *rk817 = snd_soc_codec_get_drvdata(codec);
 	unsigned int reg_val;
-	int vol_max_reg, user_val;
+	int vol_max_reg, user_val, reg_range;
 
 	reg_val = snd_soc_read(codec, RK817_CODEC_DDAC_VOLL);
 
 	/* 计算寄存器最大值：reg_max = -min_db / 0.375 */
 	vol_max_reg = (-rk817->volume_min_db * 8) / (3 * 100);
-	vol_max_reg = clamp(vol_max_reg, 1, 255);
+	vol_max_reg = clamp(vol_max_reg, RK817_VOL_MAX_REG + 1, 255);
 
 	/* 寄存器值 -> 用户空间值 */
-	user_val = ((vol_max_reg - reg_val) * 255) / vol_max_reg;
+	reg_range = vol_max_reg - RK817_VOL_MAX_REG;
+	user_val = ((vol_max_reg - reg_val) * 255) / reg_range;
 	user_val = clamp(user_val, 0, 255);
 
 	ucontrol->value.integer.value[0] = user_val;
@@ -163,15 +168,16 @@ static int rk817_vol_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct rk817_codec_priv *rk817 = snd_soc_codec_get_drvdata(codec);
 	int user_val = ucontrol->value.integer.value[0];
-	int vol_max_reg, reg_val;
+	int vol_max_reg, reg_val, reg_range;
 
 	/* 计算寄存器最大值 */
 	vol_max_reg = (-rk817->volume_min_db * 8) / (3 * 100);
-	vol_max_reg = clamp(vol_max_reg, 1, 255);
+	vol_max_reg = clamp(vol_max_reg, RK817_VOL_MAX_REG + 1, 255);
 
-	/* 用户空间值 -> 寄存器值 */
-	reg_val = vol_max_reg - (user_val * vol_max_reg) / 255;
-	reg_val = clamp(reg_val, 0, vol_max_reg);
+	/* 用户空间值 -> 寄存器值，限制在 [RK817_VOL_MAX_REG, vol_max_reg] */
+	reg_range = vol_max_reg - RK817_VOL_MAX_REG;
+	reg_val = vol_max_reg - (user_val * reg_range) / 255;
+	reg_val = clamp(reg_val, RK817_VOL_MAX_REG, vol_max_reg);
 
 	snd_soc_write(codec, RK817_CODEC_DDAC_VOLL, reg_val);
 	snd_soc_write(codec, RK817_CODEC_DDAC_VOLR, reg_val);
@@ -349,15 +355,15 @@ static int rk817_reset(struct snd_soc_codec *codec)
 	snd_soc_write(codec, RK817_CODEC_APLL_CFG5, 0x00);
 	snd_soc_write(codec, RK817_CODEC_DTOP_DIGEN_CLKE, 0x00);
 
-	/* 根据芯片版本配置 APLL */
-	if (rk817->chip_ver <= 0x4) {
+	/* 根据芯片版本配置 APLL，chip_ver=0 视为异常使用上游默认值 */
+	if (rk817->chip_ver > 0 && rk817->chip_ver <= 0x4) {
 		DBG("%s (%d): 0x4 and previous versions\n",
 		    __func__, __LINE__);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x0c);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0x95);
 	} else {
-		DBG("%s (%d): 0x4 version later\n",
-		    __func__, __LINE__);
+		DBG("%s (%d): using default APLL config (ver=0x%x)\n",
+		    __func__, __LINE__, rk817->chip_ver);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x04);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0xa5);
 	}
@@ -386,8 +392,8 @@ static struct rk817_reg_val_typ playback_power_up_list[] = {
 	{RK817_CODEC_DTOP_VUCTIME, 0xf4},
 	{RK817_CODEC_DDAC_MUTE_MIXCTL, 0x00},
 
-	{RK817_CODEC_DDAC_VOLL, 0x0a},
-	{RK817_CODEC_DDAC_VOLR, 0x0a},
+	{RK817_CODEC_DDAC_VOLL, RK817_VOL_MAX_REG},
+	{RK817_CODEC_DDAC_VOLR, RK817_VOL_MAX_REG},
 };
 
 #define RK817_CODEC_PLAYBACK_POWER_UP_LIST_LEN \
@@ -958,12 +964,14 @@ static int rk817_hw_params(struct snd_pcm_substream *substream,
 	DBG("%s : MCLK = %dHz, sample rate = %dHz\n",
 	    __func__, rk817->stereo_sysclk, rate);
 
-	if (rk817->chip_ver <= 0x4) {
+	/* chip_ver=0 视为异常，使用上游默认配置 */
+	if (rk817->chip_ver > 0 && rk817->chip_ver <= 0x4) {
 		DBG("%s: 0x4 and previous versions\n", __func__);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x0c);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0x95);
 	} else {
-		DBG("%s: 0x4 version later\n", __func__);
+		DBG("%s: using default APLL config (ver=0x%x)\n",
+		    __func__, rk817->chip_ver);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x04);
 		snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0xa5);
 	}
@@ -993,13 +1001,14 @@ static int rk817_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	if (!((substream->stream == SNDRV_PCM_STREAM_CAPTURE) && rk817->pdmdata_out_enable)) {
-		/* 根据芯片版本更新 APLL 配置 */
-		if (rk817->chip_ver <= 0x4) {
+		/* 根据芯片版本更新 APLL 配置，chip_ver=0 视为异常使用上游默认值 */
+		if (rk817->chip_ver > 0 && rk817->chip_ver <= 0x4) {
 			DBG("%s: 0x4 and previous versions, update APLL\n", __func__);
 			snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x0c);
 			snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0x95);
 		} else {
-			DBG("%s: 0x4 version later, update APLL\n", __func__);
+			DBG("%s: using default APLL config (ver=0x%x)\n",
+			    __func__, rk817->chip_ver);
 			snd_soc_write(codec, RK817_CODEC_APLL_CFG0, 0x04);
 			snd_soc_write(codec, RK817_CODEC_APLL_CFG4, 0xa5);
 		}
@@ -1009,10 +1018,18 @@ static int rk817_hw_params(struct snd_pcm_substream *substream,
 		snd_soc_update_bits(codec, RK817_CODEC_DDAC_SR_LMT0,
 				    DACSRT_MASK, dtop_digen_sr_lmt0);
 
+		/* 重启前先静音，防止 DACBIAS 断开产生 pop 噪声 */
+		snd_soc_update_bits(codec, RK817_CODEC_DDAC_MUTE_MIXCTL,
+				    DACMT_ENABLE, DACMT_ENABLE);
+
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 			rk817_restart_dac_digital_clk_and_apll(codec);
 		else
 			rk817_restart_adc_digital_clk_and_apll(codec);
+
+		/* 重启后恢复静音状态 */
+		snd_soc_update_bits(codec, RK817_CODEC_DDAC_MUTE_MIXCTL,
+				    DACMT_ENABLE, DACMT_DISABLE);
 	}
 
 	switch (params_format(params)) {
@@ -1254,8 +1271,6 @@ static int rk817_probe(struct snd_soc_codec *codec)
 	rk817->capture_path = MIC_OFF;
 
 	/* 始终启用 mclk，在 rk817_remove 中禁用 */
-	clk_prepare_enable(rk817->mclk);
-
 	/* 读取芯片版本 */
 	{
 		int chip_name = snd_soc_read(codec, RK817_PMIC_CHIP_NAME);
@@ -1274,7 +1289,7 @@ static int rk817_probe(struct snd_soc_codec *codec)
 	 * rk817_vol_tlv[2] = min_dB
 	 */
 	rk817_vol_tlv[2] = rk817->volume_min_db;
-	dev_info(codec->dev, "%s: volume range %d dB to 0 dB\n",
+	dev_info(codec->dev, "%s: volume range %d dB to -6 dB\n",
 		 __func__, rk817->volume_min_db / 100);
 #endif
 
@@ -1425,9 +1440,9 @@ static int rk817_codec_parse_dt_property(struct device *dev,
 
 	/*
 	 * 解析动态音量最小值
-	 * DTS中使用正整数表示dB绝对值，如 volume-min-db = <45>; 表示 -45dB
+	 * DTS中使用正整数表示dB绝对值，如 volume-min-db = <72>; 表示 -27dB
 	 * 驱动内部转换为负值并使用0.01dB单位
-	 * 最大音量固定为0dB（硬件最大值）
+	 * 最大音量固定为-6.75dB（寄存器0x12），与上游保持一致
 	 */
 	ret = of_property_read_u32(node, "volume-min-db", &rk817->volume_min_db);
 	if (ret < 0) {
@@ -1438,7 +1453,7 @@ static int rk817_codec_parse_dt_property(struct device *dev,
 	/* 转换为负值并以0.01dB单位存储 */
 	rk817->volume_min_db = -rk817->volume_min_db * 100;
 
-	DBG("volume range: %d dB to 0 dB\n", rk817->volume_min_db / 100);
+	DBG("volume range: %d dB to -6 dB\n", rk817->volume_min_db / 100);
 
 	return 0;
 }
