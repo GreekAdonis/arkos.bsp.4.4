@@ -335,8 +335,6 @@
 		reg = <0>;
 		/* pwm1 backlight */
 		backlight = <&backlight>;
-		/* RK817 LDO8 */
-		power-supply = <&vcc_lcd>;
 		/* LCD reset gpio GPIO3.D3 */
 		reset-gpios = <&gpio3 RK_PD3 GPIO_ACTIVE_LOW>;
 		/* power-supply-gpio GPIO3.A3  */

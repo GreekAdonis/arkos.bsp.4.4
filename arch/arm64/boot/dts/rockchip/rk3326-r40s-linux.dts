@@ -708,6 +708,8 @@
 			clock-names = "mclk";
 			pinctrl-names = "default";
 			pinctrl-0 = <&i2s1_2ch_mclk>;
+			spk-mute-delay-ms = <50>;
+			use-ext-amplifier;
 			hp-volume = <20>;
 			spk-volume = <3>;
 			volume-min-db = <72>;  /* -90*0.5 = -45 */

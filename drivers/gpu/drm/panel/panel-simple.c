@@ -541,15 +541,17 @@ static int panel_simple_regulator_enable(struct drm_panel *panel)
 	struct panel_simple *p = to_panel_simple(panel);
 	int err = 0;
 
-	if (p->power_invert) {
-		if (regulator_is_enabled(p->supply) > 0)
-			regulator_disable(p->supply);
-	} else {
-		err = regulator_enable(p->supply);
-		if (err < 0) {
-			dev_err(panel->dev, "failed to enable supply: %d\n",
-				err);
-			return err;
+	if (p->supply) {
+		if (p->power_invert) {
+			if (regulator_is_enabled(p->supply) > 0)
+				regulator_disable(p->supply);
+		} else {
+			err = regulator_enable(p->supply);
+			if (err < 0) {
+				dev_err(panel->dev, "failed to enable supply: %d\n",
+					err);
+				return err;
+			}
 		}
 	}
 #if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
@@ -565,17 +567,19 @@ static int panel_simple_regulator_disable(struct drm_panel *panel)
 	struct panel_simple *p = to_panel_simple(panel);
 	int err = 0;
 
-	if (p->power_invert) {
-		if (!regulator_is_enabled(p->supply)) {
-			err = regulator_enable(p->supply);
-			if (err < 0) {
-				dev_err(panel->dev, "failed to enable supply: %d\n",
-					err);
-				return err;
+	if (p->supply) {
+		if (p->power_invert) {
+			if (!regulator_is_enabled(p->supply)) {
+				err = regulator_enable(p->supply);
+				if (err < 0) {
+					dev_err(panel->dev, "failed to enable supply: %d\n",
+						err);
+					return err;
+				}
 			}
+		} else {
+			regulator_disable(p->supply);
 		}
-	} else {
-		regulator_disable(p->supply);
 	}
 
 #if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
@@ -895,11 +899,13 @@ static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 		dev_err(dev, "failed to get init cmd: %d\n", err);
 		return err;
 	}
-	panel->supply = devm_regulator_get(dev, "power");
+	panel->supply = devm_regulator_get_optional(dev, "power");
 	if (IS_ERR(panel->supply)) {
 		err = PTR_ERR(panel->supply);
-		dev_err(dev, "failed to get power regulator: %d\n", err);
-		return err;
+		if (err == -EPROBE_DEFER)
+			return err;
+		panel->supply = NULL;
+		dev_info(dev, "no power regulator found, using gpio only\n");
 	}
 
 #if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
