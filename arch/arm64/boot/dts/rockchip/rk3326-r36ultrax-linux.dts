@@ -2,7 +2,7 @@
 /*
 * Copyright (c) 2025 kk&lcdyk
 *
-* GameConsole R36UltraX
+* UDT R36UltraX
 *
 */
 
@@ -16,7 +16,7 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "GameConsole R36UltraX";
+	model = "UDT R36UltraX";
 	compatible = "rockchip,rk3326-r36ultrax-linux", "rockchip,rk3326";
 	
 	chosen {
@@ -300,6 +300,22 @@
 		pinctrl-names = "default";
 		enable-active-high;
 		regulator-boot-on;
+	};
+	
+	charge-animation {
+		compatible = "rockchip,uboot-charge";
+		status = "okay";
+		
+		rockchip,uboot-charge-on = <1>;
+		rockchip,android-charge-on = <0>;
+		rockchip,uboot-exit-charge-level = <0>;
+		rockchip,uboot-exit-charge-voltage = <3290>;
+		rockchip,screen-on-voltage = <3245>;
+		rockchip,uboot-low-power-voltage = <3255>;
+		rockchip,system-suspend = <0>;
+		rockchip,auto-off-screen-interval = <30>;
+		rockchip,auto-wakeup-interval = <0>;
+		rockchip,auto-wakeup-screen-invert = <1>;
 	};
 };
 
@@ -673,14 +689,14 @@
 			boost: BOOST {
 				regulator-always-on;
 				regulator-boot-on;
-				regulator-min-microvolt = <4700000>;
+				regulator-min-microvolt = <5000000>;
 				regulator-max-microvolt = <5400000>;
 				regulator-name = "boost";
 			};
 		};
 		
 		battery {
-			compatible = "rk817,battery";
+			compatible = "rk817,battery", "rk817_fg";
 			ocv_table = <
 			3300 3340 3380 3420 3460 3500 3540
 			3570 3610 3650 3690 3720 3750 3790

@@ -13,7 +13,7 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "YMC A10Mini V2";
+	model = "YMC A10Mini V4";
 	compatible = "rockchip,rk3326-a10mini-linux", "rockchip,rk3326";
 	
 	chosen {
@@ -167,7 +167,7 @@
 	
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&pwm1 0 40000 0>;
+		pwms = <&pwm1 0 62745 0>;
 		brightness-levels = <
 		0   1   2   3   4   5   6   7
 		8   9  10  11  12  13  14  15
@@ -181,7 +181,15 @@
 		72  73  74  75  76  77  78  79
 		80  81  82  83  84  85  86  87
 		88  89  90  91  92  93  94  95
-		96  97  98  99 100 101 102>;
+		96  97  98  99 100 101 102 103
+		104 105 106 107 108 109 110 111
+		112 113 114 115 116 117 118 119
+		120 121 122 123 124 125 126 127
+		128 129 130 131 132 133 134 135
+		136 137 138 139 140 141 142 143
+		144 145 146 147 148 149 150 151
+		152 153 154 155 156 157 158 159
+		160>;
 		default-brightness-level = <51>;
 	};
 	
@@ -216,6 +224,21 @@
 		regulator-max-microvolt = <3800000>;
 	};
 	
+	charge-animation {
+		compatible = "rockchip,uboot-charge";
+		status = "okay";
+		
+		rockchip,uboot-charge-on = <1>;
+		rockchip,android-charge-on = <0>;
+		rockchip,uboot-exit-charge-level = <0>;
+		rockchip,uboot-exit-charge-voltage = <3290>;
+		rockchip,screen-on-voltage = <3245>;
+		rockchip,uboot-low-power-voltage = <3255>;
+		rockchip,system-suspend = <0>;
+		rockchip,auto-off-screen-interval = <30>;
+		rockchip,auto-wakeup-interval = <0>;
+		rockchip,auto-wakeup-screen-invert = <1>;
+	};
 };
 
 &bus_apll {
@@ -265,6 +288,12 @@
 		enable-delay-ms = <26>;
 		disable-delay-ms = <10>;
 		unprepare-delay-ms = <60>;
+		uboot-prepare-delay-ms = <2>;
+		uboot-reset-delay-ms = <1>;
+		uboot-init-delay-ms = <20>;
+		uboot-enable-delay-ms = <120>;
+		uboot-disable-delay-ms = <50>;
+		uboot-unprepare-delay-ms = <20>;
 		
 		/* LCD size */
 		width-mm = <43>;
@@ -277,8 +306,8 @@
 		
 		dsi,format = <MIPI_DSI_FMT_RGB888>;
 		dsi,lanes = <2>;
-		panel-init-sequence = [ 39 00 05 ff aa 55 a5 80 39 00 06 f0 55 aa 52 08 00 15 00 02 36 00 39 00 03 b1 68 27 15 00 02 b5 0f 15 00 02 b6 0c 39 00 05 b8 01 02 08 02 15 00 02 ba 02 39 00 03 bb 24 24 39 00 03 bc 00 00 39 00 06 bd 02 68 20 20 00 39 00 06 be 02 68 20 20 00 39 00 07 cc 41 36 87 00 00 00 39 00 07 ce 10 10 10 10 10 10 39 00 06 f0 55 aa 52 08 06 39 00 03 b0 2e 2e 39 00 03 c2 17 11 05 78 01 11 05 78 01 29 ];
-		panel-exit-sequence = < 0x5140128 0x50a0110 >;
+		panel-init-sequence = [39 00 05 ff aa 55 a5 80 39 00 06 f0 55 aa 52 08 00 15 00 02 36 00 39 00 03 b1 68 27 15 00 02 b5 0f 15 00 02 b6 0c 39 00 05 b8 01 02 08 02 15 00 02 ba 02 39 00 03 bb 24 24 39 00 03 bc 00 00 39 00 06 bd 02 68 20 20 00 39 00 06 be 02 68 20 20 00 39 00 07 cc 41 36 87 00 00 00 39 00 07 ce 10 10 10 10 10 10 39 00 06 f0 55 aa 52 08 06 39 00 03 b0 2e 2e 39 00 03 c2 17 11 05 78 01 11 05 78 01 29];
+		panel-exit-sequence = <0x5140128 0x50a0110>;
 		
 		display-timings {
 			native-mode = <&timing0>;
@@ -446,6 +475,9 @@
 				regulator-max-microvolt = <1150000>;
 				regulator-ramp-delay = <6001>;
 				regulator-initial-mode = <0x2>;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1000000>;
+				regulator-uboot-max-microvolt = <1100000>;
 				regulator-name = "vdd_logic";
 				regulator-state-mem {
 					regulator-on-in-suspend;
@@ -546,23 +578,31 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1800000>;
+				regulator-uboot-max-microvolt = <3300000>;
 				
 				regulator-name = "vccio_sd";
 				regulator-state-mem {
 					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <1800000>;
+					regulator-suspend-uboot-microvolt = <3300000>;
 				};
 			};
 			
 			vcc_sd: LDO_REG6 {
 				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <3000000>;
+				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1800000>;
+				regulator-uboot-max-microvolt = <3300000>;
 				
 				regulator-name = "vcc_sd";
 				regulator-state-mem {
 					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <3000000>;
+					regulator-suspend-uboot-microvolt = <3300000>;
 					
 				};
 			};
@@ -602,8 +642,6 @@
 				};
 			};
 			
-			
-			
 			dcdc_boost: BOOST {
 				regulator-always-on;
 				regulator-boot-on;
@@ -619,7 +657,7 @@
 		};
 		
 		battery {
-			compatible = "rk817,battery";
+			compatible = "rk817,battery", "rk817_fg";
 			ocv_table = <
 			3300 3340 3380 3420 3460 3500 3540
 			3570 3610 3650 3690 3720 3750 3790
@@ -673,6 +711,8 @@
 			clock-names = "mclk";
 			pinctrl-names = "default";
 			pinctrl-0 = <&i2s1_2ch_mclk>;
+			spk-mute-delay-ms = <50>;
+			use-ext-amplifier;
 			hp-volume = <20>;
 			spk-volume = <3>;
 			volume-min-db = <72>;  /* -90*0.5 = -45 */

@@ -270,6 +270,21 @@
 		regulator-max-microvolt = <3800000>;
 	};
 	
+	charge-animation {
+		compatible = "rockchip,uboot-charge";
+		status = "okay";
+		
+		rockchip,uboot-charge-on = <1>;
+		rockchip,android-charge-on = <0>;
+		rockchip,uboot-exit-charge-level = <0>;
+		rockchip,uboot-exit-charge-voltage = <3290>;
+		rockchip,screen-on-voltage = <3245>;
+		rockchip,uboot-low-power-voltage = <3255>;
+		rockchip,system-suspend = <0>;
+		rockchip,auto-off-screen-interval = <30>;
+		rockchip,auto-wakeup-interval = <0>;
+		rockchip,auto-wakeup-screen-invert = <1>;
+	};
 };
 
 &bus_apll {
@@ -478,6 +493,9 @@
 				regulator-max-microvolt = <1150000>;
 				regulator-ramp-delay = <6001>;
 				regulator-initial-mode = <0x2>;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1000000>;
+				regulator-uboot-max-microvolt = <1100000>;
 				regulator-name = "vdd_logic";
 				regulator-state-mem {
 					regulator-on-in-suspend;
@@ -578,23 +596,31 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1800000>;
+				regulator-uboot-max-microvolt = <3300000>;
 				
 				regulator-name = "vccio_sd";
 				regulator-state-mem {
 					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <1800000>;
+					regulator-suspend-uboot-microvolt = <3300000>;
 				};
 			};
 			
 			vcc_sd: LDO_REG6 {
 				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <3000000>;
+				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
+				uboot_mode;
+				regulator-uboot-min-microvolt = <1800000>;
+				regulator-uboot-max-microvolt = <3300000>;
 				
 				regulator-name = "vcc_sd";
 				regulator-state-mem {
 					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <3000000>;
+					regulator-suspend-uboot-microvolt = <3300000>;
 					
 				};
 			};
@@ -648,7 +674,7 @@
 		};
 		
 		battery {
-			compatible = "rk817,battery";
+			compatible = "rk817,battery", "rk817_fg";
 			ocv_table = <
 			3300 3340 3380 3420 3460 3500 3540
 			3570 3610 3650 3690 3720 3750 3790
