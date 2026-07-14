@@ -108,6 +108,7 @@ static const struct usb_device_id skw_usb_io_id_table[] = {
 	{ USB_DEVICE(0x3607, 0x6160) },
 	{} /* Terminating entry */
 };
+MODULE_DEVICE_TABLE(usb, skw_usb_io_id_table);
 /************************************************************************
  *Decription:
  *Author:jiayong.yang
@@ -281,10 +282,10 @@ static void usb_setup_service_devices(void)
 				skw_usb_err("the fail to register WIFI device\n");
 				wifi_data_pdev = NULL;
 				platform_device_put(usb_ports[1]->pdev);
-			} else {
-				wifi_data_pdev = usb_ports[1]->pdev;
-				skw_usb_info("add WIFI devices done\n");
-			}
+		} else {
+			wifi_data_pdev = usb_ports[1]->pdev;
+			skw_usb_info("add WIFI devices done\n");
+		}
 		 }
 	} else
 		 skw_usb_err("NOT suppport WIFI service\n");
