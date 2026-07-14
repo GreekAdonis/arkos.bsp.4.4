@@ -42,10 +42,6 @@
 	
 	joypad: odroidgo3-joypad {
 		compatible = "odroidgo3-joypad";
-		pwms = <&pwm0 0 200000000 0>;
-		pwm-names = "enable";
-		rumble-boost-weak = <0x0000>;
-		rumble-boost-strong = <0x0000>;
 		joypad-name = "GO-Super Gamepad";
 		joypad-product = <0x1100>;
 		joypad-revision = <0x0100>;
@@ -54,7 +50,7 @@
 		/* gpio pincontrol setup */
 		pinctrl-names = "default";
 		pinctrl-0 = <&btn_pins>;
-		pinctrl-1 = <&pwm0_pin>;
+
 		/* Analog mux define */
 		io-channel-names = "amux_adc";
 		io-channels = <&saradc 1>;
@@ -66,6 +62,7 @@
 		amux-b-gpios = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
 		/* adc mux enable gpio */
 		amux-en-gpios = <&gpio3 RK_PB5 GPIO_ACTIVE_LOW>;
+		rumble-gpio = <&gpio2 RK_PA5 GPIO_ACTIVE_HIGH>;
 		
 		/* adc calculate scale */
 		button-adc-scale = <2>;
@@ -268,6 +265,15 @@
 		regulator-always-on;
 		regulator-min-microvolt = <3800000>;
 		regulator-max-microvolt = <3800000>;
+	};
+
+	vcc_host: vbus_host {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_host";
+		gpio = <&gpio0 RK_PB7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-always-on;
+		vin-supply = <&vccsys>;
 	};
 	
 	charge-animation {
@@ -791,7 +797,7 @@
 
 /* Rumble PWM */
 &pwm0 {
-	status = "okay";
+	status = "disabled";
 };
 
 /* LCD Backlight PWM */
