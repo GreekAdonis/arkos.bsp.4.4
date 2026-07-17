@@ -4,19 +4,38 @@ rk817-battery
 Required properties :
  - compatible: "rk817,battery"
  - ocv_table: ocv voltage and soc relation table
- - design_capacity: real capacity tested by tool
- - design_qmax: nominal capacity * 1.1
+ - design_capacity: real capacity tested by tool (mAh)
+ - design_qmax: nominal capacity * 1.1 (mAh)
 
 Optional properties :
- - sleep_enter_current: current threshold of enter relax mode
- - sleep_exit_current: current threshold of exit relax mode
- - sleep_filter_current: current threshold of valid relax mode
- - power_off_thresd: vsys voltage threshold of power off
- - zero_algorithm_vol: voltage threshold of discharge zero algorithm
- - max_soc_offset: soc threshold of correct dsoc as rsoc
- - monitor_sec: poll seconds for battery delay work
- - virtual_power: test mode for none battery
- - energy_mode: try to use all power of battery
+ - sample_res: sample resistor value in mohm (default 20)
+ - bat_res: battery internal resistance in mohm (default 135)
+ - monitor_sec: poll seconds for battery delay work (default 5)
+ - sleep_enter_current: current threshold of enter relax mode (mA, default 300)
+ - sleep_exit_current: current threshold of exit relax mode (mA, default 300)
+ - sleep_filter_current: current threshold of valid relax mode (mA, default 100)
+ - power_off_thresd: vsys voltage threshold of power off (mV, default 3400)
+ - virtual_power: test mode for none battery (default 0)
+ - fake_full_soc: SOC percentage threshold for fake full detection (0-100, default 100)
+ - charge_stay_awake: keep system awake while charging (default 0)
+ - bat_res_up: battery voltage divider up resistance (RK809 only)
+ - bat_res_down: battery voltage divider down resistance (RK809 only)
+ - design_max_voltage: max battery voltage for charge finish detection (RK809 only, mV)
+ - register_chg_psy: register separate charger power supply (RK809 only)
+ - ntc_table: NTC resistance table for temperature measurement
+ - ntc_degree_from: base degree for NTC table lookup
+ - temperature_chrg_table: charge current/voltage limits per temperature range
+
+Hybrid mode properties (voltage + coulomb counting SOC):
+ - hybrid_v_full_chg: learned charge-full voltage in mV (default 4200)
+ - hybrid_v_full_dis: learned discharge-full voltage in mV (default 4050)
+ - hybrid_v_empty_chg: charge-empty voltage in mV (default 3400)
+ - hybrid_v_empty_dis: discharge-empty voltage in mV (default 3300)
+
+Low-battery indicator:
+ - bat-low-gpios: GPIO for low-battery LED (descriptor-based)
+ - bat_low_gpio: GPIO for low-battery LED (legacy integer-based)
+ - bat-low-threshold: SOC percentage to trigger low-battery LED (default 5)
 
 Example:
 
@@ -38,12 +57,11 @@ rk817: pmic@20 {
 		sleep_exit_current = <300>;
 		sleep_filter_current = <100>;
 		power_off_thresd = <3500>;
-		zero_algorithm_vol = <3800>;
-		max_soc_offset = <60>;
 		monitor_sec = <5>;
-		virtual_power = <0>;
-		energy_mode = <0>;
 	};
+
+	......
+};
 
 	......
 };
