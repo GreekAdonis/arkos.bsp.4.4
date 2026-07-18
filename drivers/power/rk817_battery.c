@@ -3363,7 +3363,11 @@ static int rk817_bat_pm_resume(struct device *dev)
 	battery->sleep_sum_sec += interval_sec;
 
 	/* Hybrid mode: gap detection in hybrid_calculate will
-	 * trigger voltage calibration on the first work cycle */
+	 * trigger voltage calibration on the first work cycle.
+	 * Reset visible_soc so the first work cycle snaps to
+	 * the current value instead of stepping +1% at a time.
+	 */
+	battery->hybrid_visible_soc = -1;
 	BAT_INFO("resume: interval=%ds v=%d\n",
 		 interval_sec, battery->voltage_avg);
 
