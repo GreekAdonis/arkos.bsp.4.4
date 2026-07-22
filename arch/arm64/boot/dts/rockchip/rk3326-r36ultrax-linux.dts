@@ -65,7 +65,7 @@
 		
 		/* adc mux channel count */
 		amux-count = <4>;
-		amux-channel-mapping = <3 2 0 1>;
+		amux-channel-mapping = <2 3 1 0>;
 		/* adc mux select(a,b) gpio */
 		amux-a-gpios = <&gpio2 RK_PC0 GPIO_ACTIVE_LOW>;
 		amux-b-gpios = <&gpio2 RK_PB7 GPIO_ACTIVE_LOW>;
