@@ -28,6 +28,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-sauce-panel1-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-sauce-panel2-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-sauce-panel3-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-sauce-panel4-linux.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-sauce-panel5-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type2-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type2-with-amp-linux.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-r36s-type3-panel1-linux.dtb
