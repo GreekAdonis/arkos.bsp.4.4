@@ -32,10 +32,10 @@
 #include <linux/gpio/consumer.h>
 
 /* Hybrid mode (voltage + coulomb counting) constants */
-#define HYBRID_V_FULL_CHG_DEFAULT	4200
-#define HYBRID_V_FULL_DIS_DEFAULT	4050
+#define HYBRID_V_FULL_CHG_DEFAULT	4100
+#define HYBRID_V_FULL_DIS_DEFAULT	4000
 #define HYBRID_V_EMPTY_DIS_DEFAULT	3300
-#define HYBRID_V_EMPTY_CHG_DEFAULT	3400
+#define HYBRID_V_EMPTY_CHG_DEFAULT	3350
 #define HYBRID_PEAK_DWELL_SEC		(15 * 60)
 #define HYBRID_PEAK_TRACK_START_MV	4000
 #define HYBRID_PEAK_STABILITY_MV	30
@@ -112,13 +112,13 @@ module_param_named(dbg_level, dbg_enable, int, 0644);
 #define ADC_CALIB_CNT			5
 
 /* default param */
-#define DEFAULT_BAT_RES			135
+#define DEFAULT_BAT_RES			100
 #define DEFAULT_SLP_ENTER_CUR		300
 #define DEFAULT_SLP_EXIT_CUR		300
 #define DEFAULT_SLP_FILTER_CUR		100
-#define DEFAULT_PWROFF_VOL_THRESD	3400
+#define DEFAULT_PWROFF_VOL_THRESD	3300
 #define DEFAULT_MONITOR_SEC		5
-#define DEFAULT_SAMPLE_RES		20
+#define DEFAULT_SAMPLE_RES		10
 
 /* sleep */
 
