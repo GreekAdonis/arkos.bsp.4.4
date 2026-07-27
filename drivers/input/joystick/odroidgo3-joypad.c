@@ -1695,6 +1695,15 @@ static int joypad_probe(struct platform_device *pdev)
 		return error;
 	}
 
+	/* Startup rumble: vibrate 1 second on probe */
+	if (joypad->has_rumble) {
+		joypad->level = 0xFFFF;
+		joypad_vibrator_start(joypad);
+		msleep(1000);
+		joypad_vibrator_stop(joypad);
+		joypad->level = 0;
+	}
+
 	dev_info(dev, "%s : probe success\n", __func__);
 	return 0;
 }
