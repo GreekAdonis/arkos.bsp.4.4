@@ -151,7 +151,7 @@
 			linux,code = <BTN_TRIGGER_HAPPY4>;
 		};
 		sw13 {
-			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio0 RK_PB5 GPIO_ACTIVE_LOW>;
 			label = "GPIO F5";
 			linux,code = <BTN_TRIGGER_HAPPY5>;
 		};
@@ -937,7 +937,7 @@
 			<1 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PA2 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>,
-			<2 RK_PA4 RK_FUNC_GPIO &pcfg_pull_up>,
+			<0 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PA6 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
 			<3 RK_PB1 RK_FUNC_GPIO &pcfg_pull_up>,
