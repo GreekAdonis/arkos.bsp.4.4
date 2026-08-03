@@ -421,6 +421,13 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 		return PTR_ERR(kbdev->devfreq);
 	}
 
+	/* Apply max_gpufreq limit to devfreq framework (all in Hz) */
+	if (max_gpufreq_khz > 0) {
+		unsigned long max_freq_hz = max_gpufreq_khz * 1000;
+		kbdev->devfreq->max_freq = max_freq_hz;
+		kbdev->devfreq->scaling_max_freq = max_freq_hz;
+	}
+
 	/* devfreq_add_device only copies a few of kbdev->dev's fields, so
 	 * set drvdata explicitly so IPA models can access kbdev. */
 	dev_set_drvdata(&kbdev->devfreq->dev, kbdev);

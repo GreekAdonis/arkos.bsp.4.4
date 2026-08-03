@@ -321,8 +321,8 @@ int update_devfreq(struct devfreq *devfreq)
 	devfreq_notify_transition(devfreq, &freqs, DEVFREQ_POSTCHANGE);
 
 	if (devfreq_update_status(devfreq, freq))
-		dev_err(&devfreq->dev,
-			"Couldn't update frequency transition information.\n");
+		dev_warn_once(&devfreq->dev,
+			      "Couldn't update frequency transition information.\n");
 
 	devfreq->previous_freq = freq;
 	return err;
