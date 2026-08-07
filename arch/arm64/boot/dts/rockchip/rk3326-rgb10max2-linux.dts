@@ -2,7 +2,7 @@
 /*
 * Copyright (c) 2025 kk&lcdyk
 *
-* Powkiddy RGB10MAX1
+* Powkiddy RGB10MAX2
 *
 */
 
@@ -16,8 +16,8 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "Powkiddy RGB10MAX1";
-	compatible = "rockchip,rk3326-rgb10max1-linux", "rockchip,rk3326";
+	model = "Powkiddy RGB10MAX2";
+	compatible = "rockchip,rk3326-rgb10max2-linux", "rockchip,rk3326";
 	
 	chosen {
 		bootargs = "";
@@ -57,7 +57,7 @@
 		
 		/* adc mux channel count */
 		amux-count = <4>;
-		amux-channel-mapping = <0 1 2 3>;
+		amux-channel-mapping = <1 0 2 3>;
 		/* adc mux select(a,b) gpio */
 		amux-a-gpios = <&gpio3 RK_PB3 GPIO_ACTIVE_LOW>;
 		amux-b-gpios = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
@@ -92,6 +92,11 @@
 		
 		/* poll device interval (ms), adc read interval */
 		poll-interval = <10>;
+
+		/* required for RG351MP */
+		invert-absx;
+		invert-absy;
+		invert-absrx;
 		sw1 {
 			gpios = <&gpio1 RK_PB4 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";
@@ -243,7 +248,7 @@
 		// led-high-color = "red";
 		// led-low-color = "blue";
 		// led-red = <&gpio0 RK_PC1 GPIO_ACTIVE_HIGH>;
-		led-blue = <&gpio0 RK_PB5 GPIO_ACTIVE_HIGH>;
+		led-red = <&gpio0 RK_PB5 GPIO_ACTIVE_HIGH>;
 	};
 	
 	rk817-sound {
@@ -793,14 +798,14 @@
 			3570 3610 3650 3690 3720 3750 3790
 			3830 3870 3910 3940 3967 4001 4046
 			>;
-			design_capacity = <4000>;
-			design_qmax = <4020>;
+			design_capacity = <3000>;
+			design_qmax = <3000>;
 			bat_res = <180>;
 			sleep_enter_current = <300>;
 			sleep_exit_current = <300>;
 			sleep_filter_current = <100>;
 			power_off_thresd = <3300>;
-			zero_algorithm_vol = <3850>;
+			zero_algorithm_vol = <3700>;
 			max_soc_offset = <60>;
 			monitor_sec = <5>;
 			virtual_power = <0>;
