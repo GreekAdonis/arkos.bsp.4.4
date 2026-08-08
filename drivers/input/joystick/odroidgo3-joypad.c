@@ -111,6 +111,11 @@ struct bt_gpio {
 	bool old_value;
 	/* button press level */
 	bool active_level;
+
+	/* ADC key support */
+	bool is_adc;			/* true = ADC button, false = GPIO button */
+	int adc_value;			/* target ADC value for press detection */
+	int adc_fuzz;			/* tolerance for ADC value matching */
 };
 
 struct joypad {
@@ -145,6 +150,10 @@ struct joypad {
 	/* report interval (ms) */
 	int bt_gpio_count;
 	struct bt_gpio *gpios;
+
+	/* Shared ADC channel for ADC keys */
+	struct iio_channel *adc_key_channel;
+	bool has_adc_keys;
 
 	/* button auto repeat */
 	int auto_repeat;
@@ -779,17 +788,43 @@ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
 
-		if (gpio_get_value_cansleep(gpio->num) < 0) {
-			dev_err(joypad->dev, "failed to get gpio state\n");
-			continue;
-		}
-		value = gpio_get_value(gpio->num);
-		if (value != gpio->old_value) {
-			input_event(poll_dev->input,
-				gpio->report_type,
-				gpio->linux_code,
-				(value == gpio->active_level) ? 1 : 0);
-			gpio->old_value = value;
+		if (gpio->is_adc) {
+			/* ADC key: read shared ADC channel and compare */
+			int adc_val;
+			bool pressed;
+
+			if (!joypad->adc_key_channel)
+				continue;
+
+			if (iio_read_channel_raw(joypad->adc_key_channel, &adc_val)) {
+				dev_err(joypad->dev, "adc key read failed\n");
+				continue;
+			}
+
+			/* Check if ADC value is within tolerance of target */
+			pressed = (abs(adc_val - gpio->adc_value) <= gpio->adc_fuzz);
+
+			if (pressed != gpio->old_value) {
+				input_event(poll_dev->input,
+					gpio->report_type,
+					gpio->linux_code,
+					pressed ? 1 : 0);
+				gpio->old_value = pressed;
+			}
+		} else {
+			/* GPIO key: original logic */
+			if (gpio_get_value_cansleep(gpio->num) < 0) {
+				dev_err(joypad->dev, "failed to get gpio state\n");
+				continue;
+			}
+			value = gpio_get_value(gpio->num);
+			if (value != gpio->old_value) {
+				input_event(poll_dev->input,
+					gpio->report_type,
+					gpio->linux_code,
+					(value == gpio->active_level) ? 1 : 0);
+				gpio->old_value = value;
+			}
 		}
 	}
 	input_sync(poll_dev->input);
@@ -1245,6 +1280,7 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 {
 	struct device_node *node, *pp;
 	int nbtn;
+	bool has_adc_key = false;
 
 	node = dev->of_node;
 	if (!node)
@@ -1258,38 +1294,84 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 		return -ENOMEM;
 	}
 
+	/* First pass: check if any ADC key exists */
+	for_each_child_of_node(node, pp) {
+		if (of_find_property(pp, "adc-key", NULL)) {
+			has_adc_key = true;
+			break;
+		}
+	}
+
+	/* Get shared ADC channel for ADC keys if needed */
+	if (has_adc_key) {
+		joypad->adc_key_channel = devm_iio_channel_get(dev, "adc-key");
+		if (IS_ERR(joypad->adc_key_channel)) {
+			dev_err(dev, "Failed to get adc-key io-channel\n");
+			return -EINVAL;
+		}
+		joypad->has_adc_keys = true;
+		dev_info(dev, "ADC key channel initialized\n");
+	}
+
+	/* Second pass: setup each button */
 	nbtn = 0;
 	for_each_child_of_node(node, pp) {
-		enum of_gpio_flags flags;
 		struct bt_gpio *gpio;
 		int error;
+
 		if (!of_find_property(pp, "linux,code", NULL))
 			continue;
+
 		gpio = &joypad->gpios[nbtn++];
-
-		gpio->num = of_get_gpio_flags(pp, 0, &flags);
-		if (gpio->num < 0) {
-			error = gpio->num;
-			dev_err(dev, "Failed to get gpio flags, error: %d\n",
-				error);
-			return error;
-		}
-
-		/* gpio active level(key press level) */
-		gpio->active_level = (flags & OF_GPIO_ACTIVE_LOW) ? 0 : 1;
-
 		gpio->label = of_get_property(pp, "label", NULL);
 
-		if (gpio_is_valid(gpio->num)) {
-			error = devm_gpio_request_one(dev, gpio->num,
-						      GPIOF_IN, gpio->label);
-			if (error < 0) {
-				dev_err(dev,
-					"Failed to request GPIO %d, error %d\n",
-					gpio->num, error);
+		/* Check if this is an ADC key */
+		gpio->is_adc = of_find_property(pp, "adc-key", NULL);
+
+		if (gpio->is_adc) {
+			/* ADC key setup */
+			if (of_property_read_u32(pp, "adc_value", &gpio->adc_value)) {
+				dev_err(dev, "ADC key without adc_value\n");
+				return -EINVAL;
+			}
+			/* Default fuzz = 20 if not specified */
+			if (of_property_read_u32(pp, "adc_fuzz", &gpio->adc_fuzz))
+				gpio->adc_fuzz = 20;
+
+			gpio->num = -1;  /* No GPIO for ADC keys */
+			gpio->active_level = 0;
+			gpio->old_value = false;
+
+			dev_info(dev, "ADC key: label=%s, adc_value=%d, fuzz=%d\n",
+				gpio->label ? gpio->label : "unnamed",
+				gpio->adc_value, gpio->adc_fuzz);
+		} else {
+			/* GPIO key setup - original logic */
+			enum of_gpio_flags flags;
+
+			gpio->num = of_get_gpio_flags(pp, 0, &flags);
+			if (gpio->num < 0) {
+				error = gpio->num;
+				dev_err(dev, "Failed to get gpio flags, error: %d\n",
+					error);
 				return error;
 			}
+
+			/* gpio active level(key press level) */
+			gpio->active_level = (flags & OF_GPIO_ACTIVE_LOW) ? 0 : 1;
+
+			if (gpio_is_valid(gpio->num)) {
+				error = devm_gpio_request_one(dev, gpio->num,
+							      GPIOF_IN, gpio->label);
+				if (error < 0) {
+					dev_err(dev,
+						"Failed to request GPIO %d, error %d\n",
+						gpio->num, error);
+					return error;
+				}
+			}
 		}
+
 		if (of_property_read_u32(pp, "linux,code", &gpio->linux_code)) {
 			dev_err(dev, "Button without keycode: 0x%x\n",
 				gpio->num);
