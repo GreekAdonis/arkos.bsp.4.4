@@ -42,18 +42,6 @@
 			label = "volume up";
 			rockchip,adc_value = <166>;
 		};
-
-		mode-key {
-			linux,code = <BTN_TRIGGER_HAPPY6>;
-			label = "mode";
-			rockchip,adc_value = <335>;
-		};
-
-		back-key {
-			linux,code = <BTN_TRIGGER_HAPPY5>;
-			label = "back";
-			rockchip,adc_value = <556>;
-		};
 	};
 	
 	joypad: odroidgo3-joypad {
@@ -165,14 +153,18 @@
 			linux,code = <BTN_TRIGGER_HAPPY3>;
 		};
 		sw13 {
-			gpios = <&gpio3 RK_PD2 GPIO_ACTIVE_LOW>;
+			adc-key;
+			adc_value = <556>;
+			adc_fuzz = <20>;
 			label = "GPIO BTN_F";
-			linux,code = <BTN_TRIGGER_HAPPY7>;
+			linux,code = <BTN_TRIGGER_HAPPY5>;
 		};
 		sw14 {
-			gpios = <&gpio2 RK_PB2 GPIO_ACTIVE_LOW>;
+			adc-key;
+			adc_value = <335>;
+			adc_fuzz = <20>;
 			label = "GPIO BTN_F2";
-			linux,code = <BTN_TRIGGER_HAPPY8>;
+			linux,code = <BTN_TRIGGER_HAPPY6>;
 		};
 		sw15 {
 			gpios = <&gpio3 RK_PB5 GPIO_ACTIVE_LOW>;

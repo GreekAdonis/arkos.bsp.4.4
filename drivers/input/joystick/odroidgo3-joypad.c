@@ -116,6 +116,8 @@ struct bt_gpio {
 	bool is_adc;			/* true = ADC button, false = GPIO button */
 	int adc_value;			/* target ADC value for press detection */
 	int adc_fuzz;			/* tolerance for ADC value matching */
+	int combo_codes[4];		/* combo key codes (0 = unused) */
+	int combo_count;		/* number of combo keys */
 };
 
 struct joypad {
@@ -792,12 +794,14 @@ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 			/* ADC key: read shared ADC channel and compare */
 			int adc_val;
 			bool pressed;
+			int ret;
 
 			if (!joypad->adc_key_channel)
 				continue;
 
-			if (iio_read_channel_raw(joypad->adc_key_channel, &adc_val)) {
-				dev_err(joypad->dev, "adc key read failed\n");
+			ret = iio_read_channel_raw(joypad->adc_key_channel, &adc_val);
+			if (ret < 0) {
+				dev_err_once(joypad->dev, "adc key read failed: %d\n", ret);
 				continue;
 			}
 
@@ -805,10 +809,22 @@ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 			pressed = (abs(adc_val - gpio->adc_value) <= gpio->adc_fuzz);
 
 			if (pressed != gpio->old_value) {
+				int i;
+
+				/* Primary key */
 				input_event(poll_dev->input,
 					gpio->report_type,
 					gpio->linux_code,
 					pressed ? 1 : 0);
+
+				/* Combo keys */
+				for (i = 0; i < gpio->combo_count; i++) {
+					input_event(poll_dev->input,
+						gpio->report_type,
+						gpio->combo_codes[i],
+						pressed ? 1 : 0);
+				}
+
 				gpio->old_value = pressed;
 			}
 		} else {
@@ -1319,7 +1335,8 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 		struct bt_gpio *gpio;
 		int error;
 
-		if (!of_find_property(pp, "linux,code", NULL))
+		if (!of_find_property(pp, "linux,code", NULL) &&
+		    !of_find_property(pp, "adc-key", NULL))
 			continue;
 
 		gpio = &joypad->gpios[nbtn++];
@@ -1338,13 +1355,22 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 			if (of_property_read_u32(pp, "adc_fuzz", &gpio->adc_fuzz))
 				gpio->adc_fuzz = 20;
 
+			/* Optional combo key codes */
+			gpio->combo_count = of_property_count_u32_elems(pp, "linux,code-combo");
+			if (gpio->combo_count > 0 && gpio->combo_count <= 4) {
+				of_property_read_u32_array(pp, "linux,code-combo",
+					gpio->combo_codes, gpio->combo_count);
+			} else {
+				gpio->combo_count = 0;
+			}
+
 			gpio->num = -1;  /* No GPIO for ADC keys */
 			gpio->active_level = 0;
 			gpio->old_value = false;
 
-			dev_info(dev, "ADC key: label=%s, adc_value=%d, fuzz=%d\n",
+			dev_info(dev, "ADC key: label=%s, adc_value=%d, fuzz=%d, combo=%d\n",
 				gpio->label ? gpio->label : "unnamed",
-				gpio->adc_value, gpio->adc_fuzz);
+				gpio->adc_value, gpio->adc_fuzz, gpio->combo_count);
 		} else {
 			/* GPIO key setup - original logic */
 			enum of_gpio_flags flags;
@@ -1373,9 +1399,17 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 		}
 
 		if (of_property_read_u32(pp, "linux,code", &gpio->linux_code)) {
-			dev_err(dev, "Button without keycode: 0x%x\n",
-				gpio->num);
-			return -EINVAL;
+			if (gpio->is_adc && gpio->combo_count > 0) {
+				/* Use first combo code as primary */
+				gpio->linux_code = gpio->combo_codes[0];
+				gpio->combo_count--;
+				memmove(gpio->combo_codes, gpio->combo_codes + 1,
+					gpio->combo_count * sizeof(int));
+			} else {
+				dev_err(dev, "Button without keycode: 0x%x\n",
+					gpio->num);
+				return -EINVAL;
+			}
 		}
 		if (of_property_read_u32(pp, "linux,input-type",
 				&gpio->report_type))
@@ -1519,8 +1553,15 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 	__set_bit(EV_KEY, input->evbit);
 	for(nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
+		int i;
+
 		input_set_capability(input, gpio->report_type,
 				gpio->linux_code);
+		/* Register combo key capabilities */
+		for (i = 0; i < gpio->combo_count; i++) {
+			input_set_capability(input, gpio->report_type,
+					gpio->combo_codes[i]);
+		}
 	}
 
 	if (joypad->auto_repeat)
@@ -1581,7 +1622,8 @@ static int joypad_gpio_child_count(struct device_node *node)
     int count = 0;
 
     for_each_child_of_node(node, pp) {
-        if (of_find_property(pp, "linux,code", NULL))
+        if (of_find_property(pp, "linux,code", NULL) ||
+            of_find_property(pp, "adc-key", NULL))
             count++;
     }
     return count;

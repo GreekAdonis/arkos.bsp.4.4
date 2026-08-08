@@ -44,28 +44,6 @@
 		};
 	};
 	
-	d007_keys: d007-keys {
-		compatible = "rockchip,key";
-		io-channels = <&saradc 2>;
-		select-key {
-			linux,code = <BTN_SELECT>;
-			label = "select";
-			rockchip,adc_value = <347>;
-		};
-		
-		start-key {
-			linux,code = <BTN_START>;
-			label = "start";
-			rockchip,adc_value = <553>;
-		};
-		
-		esc-key {
-			linux,code = <BTN_BACK>;
-			label = "fn";
-			rockchip,adc_value = <740>;
-		};
-	};
-	
 	joypad: odroidgo3-joypad {
 		compatible = "odroidgo3-joypad";
 		
@@ -171,9 +149,11 @@
 			linux,code = <BTN_TRIGGER_HAPPY3>;
 		};
 		sw13 {
-			gpios = <&gpio0 RK_PC2 GPIO_ACTIVE_LOW>;
+			adc-key;
+			adc_value = <740>;
+			adc_fuzz = <20>;
 			label = "GPIO BTN_F";
-			linux,code = <BTN_TRIGGER_HAPPY5>;//占位用
+			linux,code-combo = <BTN_TRIGGER_HAPPY1 BTN_TRIGGER_HAPPY2>;
 		};
 		sw15 {
 			gpios = <&gpio3 RK_PC3 GPIO_ACTIVE_LOW>;
@@ -186,9 +166,11 @@
 			linux,code = <BTN_TR>;
 		};
 		sw19 {
-			gpios = <&gpio3 RK_PA7 GPIO_ACTIVE_LOW>;
+			adc-key;
+			adc_value = <347>;
+			adc_fuzz = <20>;
 			label = "BTN_SELECT";
-			linux,code = <BTN_TRIGGER_HAPPY1>;//占位用
+			linux,code = <BTN_TRIGGER_HAPPY1>;
 		};
 		sw20 {
 			gpios = <&gpio3 RK_PC0 GPIO_ACTIVE_LOW>;
@@ -201,9 +183,11 @@
 			linux,code = <BTN_TL2>;
 		};
 		sw22 {
-			gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>;
+			adc-key;
+			adc_value = <553>;
+			adc_fuzz = <20>;
 			label = "BTN_START";
-			linux,code = <BTN_TRIGGER_HAPPY2>;//占位用
+			linux,code = <BTN_TRIGGER_HAPPY2>;
 		};
 	};
 	
