@@ -56,8 +56,8 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&btn_pins>;
 		/* Analog mux define */
-		io-channel-names = "amux_adc";
-		io-channels = <&saradc 1>;
+		io-channel-names = "amux_adc", "adc-key";
+		io-channels = <&saradc 1>, <&saradc 2>;
 		
 		/* adc mux channel count */
 		amux-count = <4>;

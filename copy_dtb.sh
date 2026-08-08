@@ -69,6 +69,7 @@ declare -A DTB_MAP=(
     ["rk3326-xf45v-linux"]="xf45v"
     ["rk3326-xgb36-linux"]="xgb36"
     ["rk3326-xu10-linux"]="xu10"
+    ["rk3326-h7-linux"]="h7"
 )
 
 success=0
