@@ -70,29 +70,29 @@
 		/* adc calculate scale */
 		button-adc-scale = <2>;
 		/* adc deadzone range  */
-		button-adc-deadzone = <16>;
+		button-adc-deadzone = <64>;
 		/*
 		specifies fuzz value that is used to filter noise from
 		the event stream.
 		*/
 		button-adc-fuzz = <32>;
-		button-adc-flat = <32>;
+		button-adc-flat = <256>;
 		/*
 		Analog Stick data tuning value(precent)
 		p = positive direction, n = negative direction
 		report value = (real_adc_data * tuning_value) / 100
 		*/
-		abs_x-p-tuning = <200>;
-		abs_x-n-tuning = <850>;
+		abs_x-p-tuning = <230>;
+		abs_x-n-tuning = <200>;
 		
-		abs_y-p-tuning = <250>;
-		abs_y-n-tuning = <850>;
+		abs_y-p-tuning = <230>;
+		abs_y-n-tuning = <170>;
 		
-		abs_rx-p-tuning = <200>;
-		abs_rx-n-tuning = <850>;
+		abs_rx-p-tuning = <230>;
+		abs_rx-n-tuning = <150>;
 		
 		abs_ry-p-tuning = <200>;
-		abs_ry-n-tuning = <850>;
+		abs_ry-n-tuning = <200>;
 		
 		/* poll device interval (ms), adc read interval */
 		poll-interval = <10>;
@@ -312,7 +312,7 @@
 		/* pwm1 backlight */
 		backlight = <&backlight>;
 		/* RK817 LDO7 */
-		backlight-supply = <&vcc_backlight>;
+		backlight-supply = <&vcc2v8_dvp>;
 		/* RK817 LDO8 */
 		power-supply = <&vcc_lcd>;
 		/* Rev 0.2 LCD reset gpio GPIO3.C0 */
@@ -422,7 +422,7 @@
 		vcc4-supply = <&vccsys>;
 		vcc5-supply = <&vccsys>;
 		vcc6-supply = <&vccsys>;
-		vcc7-supply = <&vcc_3v3>;
+		vcc7-supply = <&vcc_3v0>;
 		vcc8-supply = <&vccsys>;
 		vcc9-supply = <&dcdc_boost>;
 		
@@ -482,7 +482,7 @@
 				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <850000>;
-				regulator-max-microvolt = <1350000>;
+				regulator-max-microvolt = <1150000>;
 				regulator-ramp-delay = <6001>;
 				regulator-initial-mode = <0x2>;
 				uboot_mode;
@@ -519,15 +519,15 @@
 				};
 			};
 			
-			vcc_3v3: DCDC_REG4 {
+			vcc_3v0: DCDC_REG4 {
 				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <3000000>;
 				regulator-max-microvolt = <3000000>;
 				regulator-initial-mode = <0x2>;
-				regulator-name = "vcc_3v3";
+				regulator-name = "vcc_3v0";
 				regulator-state-mem {
-					regulator-off-in-suspend;
+					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <3000000>;
 				};
 			};
@@ -571,13 +571,13 @@
 				};
 			};
 			
-			vcc3v3_pmu: LDO_REG4 {
+			vcc3v0_pmu: LDO_REG4 {
 				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <3000000>;
 				regulator-max-microvolt = <3000000>;
 				
-				regulator-name = "vcc3v3_pmu";
+				regulator-name = "vcc3v0_pmu";
 				regulator-state-mem {
 					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <3000000>;
@@ -599,6 +599,8 @@
 			};
 			
 			vcc_sd: LDO_REG6 {
+				regulator-always-on;
+				regulator-boot-on;
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
 				
@@ -611,35 +613,37 @@
 			};
 			
 			/* GO3 : Not used LCD Backlight Power */
-			vcc_backlight: LDO_REG7 {
+			vcc2v8_dvp: LDO_REG7 {
+				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <2800000>;
 				regulator-max-microvolt = <2800000>;
-				regulator-name = "vcc_backlight";
+				regulator-name = "vcc2v8_dvp";
 				regulator-state-mem {
-					regulator-off-in-suspend;
+					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <2800000>;
 				};
 			};
 			
 			/* Rev 0.1 GO3 LCD IO Power */
 			vcc_lcd: LDO_REG8 {
+				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
 				regulator-name = "vcc_lcd";
 				regulator-state-mem {
-					regulator-off-in-suspend;
+					regulator-on-in-suspend;
 					regulator-suspend-microvolt = <1800000>;
 				};
 			};
 			
 			/* Rev 1.1 WIFI Power */
-			vcc_wifi: LDO_REG9 {
+			vdd1v5_dvp: LDO_REG9 {
 				regulator-boot-on;
 				regulator-min-microvolt = <1500000>;
 				regulator-max-microvolt = <1500000>;
-				regulator-name = "vcc_wifi";
+				regulator-name = "vdd1v5_dvp";
 				regulator-state-mem {
 					regulator-off-in-suspend;
 					regulator-suspend-microvolt = <1500000>;
@@ -649,7 +653,7 @@
 			dcdc_boost: BOOST {
 				regulator-always-on;
 				regulator-boot-on;
-				regulator-min-microvolt = <4700000>;
+				regulator-min-microvolt = <5000000>;
 				regulator-max-microvolt = <5400000>;
 				regulator-name = "boost";
 			};
@@ -740,13 +744,11 @@
 	/* SDMMC I/O Voltage */
 	vccio2-supply = <&vccio_sd>;
 	/* CAM I/O Voltage */
-	vccio3-supply = <&vcc_3v3>;
+	vccio3-supply = <&vcc_3v0>;
 	/* LVDS/LCDC I/O Voltage */
-	vccio4-supply = <&vcc_3v3>;
+	vccio4-supply = <&vcc_3v0>;
 	/* I2S I/O Voltage */
-	vccio5-supply = <&vcc_3v3>;
-	/* eMMC I/O Voltage */
-	vccio6-supply = <&vcc_3v3>;
+	vccio5-supply = <&vcc_3v0>;
 };
 
 &isp_mmu {
@@ -770,14 +772,9 @@
 	status = "okay";
 	
 	/* PMU I/O Voltage */
-	pmuio1-supply = <&vcc3v3_pmu>;
+	pmuio1-supply = <&vcc3v0_pmu>;
 	/* GPIO0_B/GPIO0_C, Flash */
-	pmuio2-supply = <&vcc3v3_pmu>;
-};
-
-/* Rumble PWM */
-&pwm0 {
-	status = "disabled";
+	pmuio2-supply = <&vcc3v0_pmu>;
 };
 
 /* LCD Backlight PWM */
@@ -807,7 +804,6 @@
 	card-detect-delay = <800>;
 	max-frequency = <150000000>;
 	ignore-pm-notify;
-	// cd-gpios = <&gpio0 RK_PA3 GPIO_ACTIVE_LOW>;
 	sd-uhs-sdr12;
 	sd-uhs-sdr25;
 	sd-uhs-sdr50;
@@ -842,10 +838,6 @@
 	status = "okay";
 };
 
-/*
-EXT Header(P2) UART :
-2(RXD:GPIO1.C0),3(TXD:GPIO1.C1),4(CTS:GPIO1.C2),5(RTS:GPIO1.C3)
-*/
 &uart1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart1_xfer &uart1_cts>;
@@ -904,13 +896,10 @@ EXT Header(P2) UART :
 			<3 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>,
 			<2 RK_PB1 RK_FUNC_GPIO &pcfg_pull_up>,
-			<0 RK_PC2 RK_FUNC_GPIO &pcfg_pull_up>,
 			<3 RK_PC3 RK_FUNC_GPIO &pcfg_pull_up>,
 			<3 RK_PC1 RK_FUNC_GPIO &pcfg_pull_up>,
-			<3 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
 			<3 RK_PC0 RK_FUNC_GPIO &pcfg_pull_up>,
-			<3 RK_PC2 RK_FUNC_GPIO &pcfg_pull_up>,
-			<3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
+			<3 RK_PC2 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 };

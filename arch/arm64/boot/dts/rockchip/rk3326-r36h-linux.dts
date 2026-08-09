@@ -153,11 +153,6 @@
 			label = "BTN_THUMBL";
 			linux,code = <BTN_TRIGGER_HAPPY4>;
 		};
-		sw13 {
-			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
-			label = "GPIO F5";
-			linux,code = <BTN_TRIGGER_HAPPY5>;
-		};
 		sw15 {
 			gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TL";

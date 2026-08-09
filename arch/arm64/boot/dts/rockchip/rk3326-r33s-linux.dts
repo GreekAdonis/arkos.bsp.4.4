@@ -100,12 +100,12 @@
 			linux,code = <BTN_NORTH>;
 		};
 		sw11 {
-			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>; //占位用
 			label = "BTN_THUMBR";
 			linux,code = <BTN_TRIGGER_HAPPY3>;
 		};
 		sw12 {
-			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>; //占位用
 			label = "BTN_THUMBL";
 			linux,code = <BTN_TRIGGER_HAPPY4>;
 		};

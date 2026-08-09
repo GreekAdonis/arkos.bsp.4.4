@@ -99,12 +99,12 @@
 		sw11 {
 			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
 			label = "BTN_THUMBR";
-			linux,code = <BTN_TRIGGER_HAPPY4>;
+			linux,code = <BTN_TRIGGER_HAPPY4>; //占位用
 		};
 		sw12 {
 			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
 			label = "BTN_THUMBL";
-			linux,code = <BTN_TRIGGER_HAPPY3>;
+			linux,code = <BTN_TRIGGER_HAPPY3>; //占位用
 		};
 		sw13 {
 			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;

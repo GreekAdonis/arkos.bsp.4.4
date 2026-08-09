@@ -158,29 +158,29 @@
 			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
 			label = "GPIO FN";
 			linux,code = <BTN_TRIGGER_HAPPY5>;
-		};//OK
+		};
 		sw15 {
 			gpios = <&gpio2 RK_PA7 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TL";
 			linux,code = <BTN_TL>;
-		};//OK
+		};
 		sw16 {
 			gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TR";
 			linux,code = <BTN_TR>;
-		};//OK
+		};
 		sw19 {
 			gpios = <&gpio3 RK_PB2 GPIO_ACTIVE_LOW>;
 			label = "BTN_SELECT";
 			linux,code = <BTN_TRIGGER_HAPPY1>;
 		};
 		sw20 {
-			gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>; //占位用
 			label = "GPIO BTN_TR2";
 			linux,code = <BTN_TR2>;
 		};
 		sw21 {
-			gpios = <&gpio3 RK_PB1 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio3 RK_PB1 GPIO_ACTIVE_LOW>; //占位用
 			label = "GPIO BTN_TL2";
 			linux,code = <BTN_TL2>;
 		};
