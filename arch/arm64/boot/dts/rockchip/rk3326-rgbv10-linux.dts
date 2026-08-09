@@ -2,7 +2,7 @@
 /*
 * Copyright (c) 2025 kk&lcdyk
 *
-* Powkiddy RGB10
+* Powkiddy RGBV10
 *
 */
 
@@ -16,8 +16,8 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "Powkiddy RGB10";
-	compatible = "rockchip,rk3326-rgb10-linux", "rockchip,rk3326";
+	model = "Powkiddy RGBV10";
+	compatible = "rockchip,rk3326-rgbv10-linux", "rockchip,rk3326";
 	
 	chosen {
 		bootargs = "";
@@ -28,38 +28,14 @@
 		joypad-name = "GO-Super Gamepad";
 		joypad-product = <0x1100>;
 		joypad-revision = <0x0100>;
-		direct-adc;
 		status = "okay";
 		/* gpio pincontrol setup */
 		pinctrl-names = "default";
 		pinctrl-0 = <&btn_pins>;
 		/* JOY_X, JOY_Y Channel define */
-		io-channel-names = "joy_y", "joy_x";
-		io-channels = <&saradc 2>,<&saradc 1>;
-		/* adc channel count */
-		button-adc-count = <2>;
-		/* adc calculate scale */
-		button-adc-scale = <2>;
-		
-		/* adc deadzone range  */
-		button-adc-deadzone = <64>;
-	
-		/*
-		specifies fuzz value that is used to filter noise from
-		the event stream.
-		*/
-		button-adc-fuzz = <32>;
-		button-adc-flat = <32>;
-		
-		abs_x-p-tuning = <200>;
-		abs_x-n-tuning = <200>;
-		
-		abs_y-p-tuning = <150>;
-		abs_y-n-tuning = <150>;
-		
+		amux-count = <0>;
 		/* poll device interval (ms), adc read interval */
 		poll-interval = <10>;
-		invert-absx;
 		
 		sw1 {
 			gpios = <&gpio1 RK_PB4 GPIO_ACTIVE_LOW>;
@@ -229,9 +205,8 @@
 		compatible = "regulator-fixed";
 		regulator-name = "vcc3v8_sys";
 		regulator-always-on;
-		regulator-boot-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
+		regulator-min-microvolt = <3800000>;
+		regulator-max-microvolt = <3800000>;
 	};
 	
 	vcc_host: vcc_host {
@@ -878,7 +853,7 @@
 			<0 RK_PA4 RK_FUNC_2 &pcfg_pull_none>;
 		};
 	};
-	
+
 	btns {
 		btn_pins: btn-pins {
 			rockchip,pins = 

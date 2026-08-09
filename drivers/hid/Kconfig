@@ -555,6 +555,15 @@ config HID_ORTEK
 	   - Ortek WKB-2000
 	   - Skycable wireless presenter
 
+config HID_OSHPB
+	tristate "OpenSimHardware OSH PB Controller (odroidgo3-joypad compatible)"
+	depends on HID
+	---help---
+	Say Y here if you have an OpenSimHardware OSH PB Controller
+	(USB VID:1209 PID:3100). This driver intercepts the raw HID reports,
+	remaps axes/buttons to match odroidgo3-joypad, and exposes a sysfs
+	node for runtime tuning of analog stick values.
+
 config HID_PANTHERLORD
 	tristate "Pantherlord/GreenAsia game controller"
 	depends on HID
