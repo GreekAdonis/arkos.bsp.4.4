@@ -43,6 +43,10 @@
 #define DRV_NAME "odroidgo3_joypad"
 
 /*----------------------------------------------------------------------------*/
+/* Debug: expose joystick tuning values via sysfs */
+#define JOYPAD_DEBUG_TUNING	0	/* set to 1 to enable sysfs tuning interface */
+
+/*----------------------------------------------------------------------------*/
 #define	ADC_MAX_VOLTAGE		1800
 #define	ADC_DATA_TUNING(x, p)	((x * p) / 100)
 #define	ADC_TUNING_DEFAULT	180
@@ -72,6 +76,10 @@ struct bt_adc {
 	struct iio_channel *channel;
 	/* report value (mV) */
 	int value;
+#if JOYPAD_DEBUG_TUNING
+	/* raw ADC value before calibration */
+	int raw;
+#endif
 	/* report type */
 	int report_type;
 	/* input device init value (mV) */
@@ -763,6 +771,87 @@ static DEVICE_ATTR(rumble_boost_weak, S_IWUSR | S_IRUGO,
 		   joypad_show_boost_weak,
 		   joypad_store_boost_weak);
 
+/*----------------------------------------------------------------------------*/
+#if JOYPAD_DEBUG_TUNING
+/*
+ * Single sysfs node to dump/set all tuning values.
+ *
+ * Read:  cat /sys/devices/platform/odroidgo3_joypad/joypad_tuning
+ *   Output per axis: raw ADC, calibrated, final value, tuning p/n
+ *
+ * Write: echo "x_p 200" > /sys/devices/platform/odroidgo3_joypad/joypad_tuning
+ *   Keys: x_p, x_n, y_p, y_n, rx_p, rx_n, ry_p, ry_n
+ */
+static const char * const tuning_names[] = {
+	"ry_p", "ry_n", "rx_p", "rx_n",
+	"y_p",  "y_n",  "x_p",  "x_n",
+};
+static const int tuning_adc_idx[] = { 0, 0, 1, 1, 2, 2, 3, 3 };
+static const bool tuning_is_p[] =   { 1, 0, 1, 0, 1, 0, 1, 0 };
+
+static ssize_t joypad_show_tuning(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct joypad *joypad = platform_get_drvdata(pdev);
+	int i, len = 0;
+
+	if (!joypad->adcs)
+		return sprintf(buf, "no adcs\n");
+
+	for (i = 0; i < joypad->amux_count && i < 4; i++) {
+		struct bt_adc *adc = &joypad->adcs[i];
+		const char *name;
+
+		switch (adc->report_type) {
+		case ABS_X:  name = "x";  break;
+		case ABS_Y:  name = "y";  break;
+		case ABS_RX: name = "rx"; break;
+		case ABS_RY: name = "ry"; break;
+		default:     name = "?";  break;
+		}
+		len += scnprintf(buf + len, PAGE_SIZE - len,
+			"%s: raw=%d cal=%d val=%d  tuning_p=%d tuning_n=%d\n",
+			name, adc->raw, adc->cal, adc->value,
+			adc->tuning_p, adc->tuning_n);
+	}
+	return len;
+}
+
+static ssize_t joypad_store_tuning(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct joypad *joypad = platform_get_drvdata(pdev);
+	struct bt_adc *adc;
+	char key[8];
+	int val, i;
+
+	if (sscanf(buf, "%7s %d", key, &val) != 2)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(tuning_names); i++) {
+		if (!joypad->adcs || tuning_adc_idx[i] >= joypad->amux_count)
+			continue;
+		if (strcmp(key, tuning_names[i]))
+			continue;
+
+		adc = &joypad->adcs[tuning_adc_idx[i]];
+		if (tuning_is_p[i])
+			adc->tuning_p = val;
+		else
+			adc->tuning_n = val;
+		return count;
+	}
+	return -EINVAL;
+}
+
+static DEVICE_ATTR(joypad_tuning, S_IWUSR | S_IRUGO,
+		   joypad_show_tuning,
+		   joypad_store_tuning);
+#endif /* JOYPAD_DEBUG_TUNING */
+
 static struct attribute *joypad_attrs[] = {
 	&dev_attr_poll_interval.attr,
 	&dev_attr_adc_fuzz.attr,
@@ -773,6 +862,9 @@ static struct attribute *joypad_attrs[] = {
 	&dev_attr_rumble_period.attr,
 	&dev_attr_rumble_boost_strong.attr,
 	&dev_attr_rumble_boost_weak.attr,
+#if JOYPAD_DEBUG_TUNING
+	&dev_attr_joypad_tuning.attr,
+#endif
 	NULL,
 };
 
@@ -875,6 +967,9 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
 					__func__, nbtn);
 				continue;
 			}
+#if JOYPAD_DEBUG_TUNING
+			adc->raw = adc->value;
+#endif
 			adc->value = adc->value - adc->cal;
 
 			/* Deadzone */
@@ -925,6 +1020,9 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
 					__func__, (i ? nbtn + 1 : nbtn));
 				continue;
 			}
+#if JOYPAD_DEBUG_TUNING
+			adc->raw = adc->value;
+#endif
 			adc->value = adc->value - adc->cal;
 
 			/* Deadzone */
