@@ -42,10 +42,6 @@
 	
 	joypad: odroidgo3-joypad {
 		compatible = "odroidgo3-joypad";
-		pwms = <&pwm0 0 200000000 0>;
-		pwm-names = "enable";
-		rumble-boost-weak = <0x0000>;
-		rumble-boost-strong = <0x0000>;
 		joypad-name = "GO-Super Gamepad";
 		joypad-product = <0x1100>;
 		joypad-revision = <0x0100>;
@@ -54,7 +50,7 @@
 		/* gpio pincontrol setup */
 		pinctrl-names = "default";
 		pinctrl-0 = <&btn_pins>;
-		pinctrl-1 = <&pwm0_pin>;
+
 		/* Analog mux define */
 		io-channel-names = "amux_adc";
 		io-channels = <&saradc 1>;
@@ -343,7 +339,7 @@
 	status = "okay";
 	
 	panel@0 {
-		compatible = "elida,kd35t133", "simple-panel-dsi";
+		compatible = "simple-panel-dsi";
 		reg = <0>;
 		/* pwm1 backlight */
 		backlight = <&backlight>;
@@ -670,19 +666,16 @@
 			};
 			
 			vcc_wifi: LDO_REG9 {
-				regulator-always-on;
-				regulator-boot-on;
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-name = "vcc_wifi";
+				regulator-always-on;
 				
 				regulator-state-mem {
 					regulator-off-in-suspend;
 					regulator-suspend-microvolt = <3300000>;
 				};
 			};
-			
-			
 			
 			dcdc_boost: BOOST {
 				regulator-always-on;
@@ -705,18 +698,6 @@
 			3570 3610 3650 3690 3720 3750 3790
 			3830 3870 3910 3940 3967 4001 4046
 			>;
-			
-			
-			/* KPL605475 Battery Spec */
-			/*
-			Capacity : 3.7V 3000mA
-			Normal Voltage = 3.7V
-			Cut-Off Voltage : 3.1V
-			Internal Impedance : 180 mOhm
-			Charging Voltage : 4.2V
-			Charging Voltage Max : 4.25V
-			Sample resister : 10 mohm
-			*/
 			design_capacity = <4000>;
 			design_qmax = <4020>;
 			bat_res = <180>;
@@ -828,7 +809,7 @@
 
 /* Rumble PWM */
 &pwm0 {
-	status = "okay";
+	status = "disabled";
 };
 
 /* LCD Backlight PWM */

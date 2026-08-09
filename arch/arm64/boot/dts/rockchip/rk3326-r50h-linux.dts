@@ -2,7 +2,7 @@
 /*
 * Copyright (c) 2026 kk&lcdyk
 *
-* GameConsole R36S
+* GameConsole R50H
 *
 */
 
@@ -16,8 +16,8 @@
 #include "rk3326-linux.dtsi"
 
 / {
-	model = "GameConsole R36S";
-	compatible = "rockchip,rk3326-r36s-linux", "rockchip,rk3326";
+	model = "GameConsole R50H";
+	compatible = "rockchip,rk3326-r50h-linux", "rockchip,rk3326";
 	
 	chosen {
 		bootargs = "";
