@@ -130,8 +130,10 @@ struct rk817_codec_priv {
 	int volume_min_db;
 
 	int user_vol;
-	/* Previous volume; tracks the volume 0 <-> non-zero transitions */
-	int last_user_vol;
+	/* True when the DAC is at its minimum register (effective volume 0) */
+	bool vol_at_floor;
+	/* Previous floor state; the amplifier is only re-enabled on the edge */
+	bool last_vol_at_floor;
 };
 
 #ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
@@ -195,18 +197,20 @@ static void rk817_codec_apply_volume(struct snd_soc_codec *codec)
 	snd_soc_write(codec, RK817_CODEC_DDAC_VOLL, reg_val);
 	snd_soc_write(codec, RK817_CODEC_DDAC_VOLR, reg_val);
 
-	if (rk817->user_vol == 0) {
+	rk817->vol_at_floor = (reg_val == vol_max_reg);
+
+	if (rk817->vol_at_floor) {
 		snd_soc_update_bits(codec, RK817_CODEC_DDAC_MUTE_MIXCTL,
 				    DACMT_ENABLE, DACMT_ENABLE);
 		rk817_codec_amp_mute(codec, 1);
 	} else {
-		if (rk817->last_user_vol == 0)
+		if (rk817->last_vol_at_floor)
 			rk817_codec_amp_mute(codec, 0);
 		snd_soc_update_bits(codec, RK817_CODEC_DDAC_MUTE_MIXCTL,
 				    DACMT_ENABLE, DACMT_DISABLE);
 	}
 
-	rk817->last_user_vol = rk817->user_vol;
+	rk817->last_vol_at_floor = rk817->vol_at_floor;
 }
 
 static int rk817_vol_get(struct snd_kcontrol *kcontrol,
@@ -1122,8 +1126,8 @@ static int rk817_digital_mute(struct snd_soc_dai *dai, int mute)
 	DBG("%s %d, playback_path %ld\n", __func__, mute, rk817->playback_path);
 	
 #ifdef CONFIG_ARCH_ROCKCHIP_ODROIDGOA
-	/* Keep the DAC muted at volume 0; stream start/stop must not unmute it */
-	if (rk817->user_vol == 0) {
+	/* Keep the DAC muted at minimum volume; stream start/stop must not unmute it */
+	if (rk817->vol_at_floor) {
 		snd_soc_update_bits(codec, RK817_CODEC_DDAC_MUTE_MIXCTL,
 				    DACMT_ENABLE, DACMT_ENABLE);
 		return 0;
@@ -1372,7 +1376,8 @@ static int rk817_probe(struct snd_soc_codec *codec)
 		 __func__, rk817->volume_min_db / 100);
 
 	rk817->user_vol = 0;
-	rk817->last_user_vol = 0;
+	rk817->vol_at_floor = true;
+	rk817->last_vol_at_floor = true;
 #endif
 
 	snd_soc_add_codec_controls(codec, rk817_snd_path_controls,
