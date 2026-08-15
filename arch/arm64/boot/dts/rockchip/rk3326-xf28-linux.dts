@@ -77,6 +77,7 @@
 		poll-interval = <10>;
 		invert-absx;
 		invert-absy;
+		stick-switch-key = <BTN_TR2>;
 		sw1 {
 			gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";

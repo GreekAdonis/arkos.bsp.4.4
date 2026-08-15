@@ -71,7 +71,7 @@
 		
 		/* poll device interval (ms), adc read interval */
 		poll-interval = <10>;
-		
+		stick-switch-key = <BTN_TR2>;
 		sw1 {
 			gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";
@@ -121,11 +121,6 @@
 			gpios = <&gpio2 RK_PB5 GPIO_ACTIVE_LOW>;
 			label = "BTN_THUMBL";
 			linux,code = <BTN_TRIGGER_HAPPY3>;
-		};
-		sw13 {
-			gpios = <&gpio3 RK_PB2 GPIO_ACTIVE_LOW>;
-			label = "GPIO BTN_F";
-			linux,code = <BTN_TRIGGER_HAPPY5>;
 		};
 		sw15 {
 			gpios = <&gpio3 RK_PB5 GPIO_ACTIVE_LOW>;
