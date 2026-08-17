@@ -328,8 +328,8 @@ static int joypad_amux_select(struct analog_mux *amux, int channel, bool split_a
 				return -1;
 		}
 	}
-	/* 多路复用器切换速度: 35ns(开启) / 9ns(关闭) */
-	usleep_range(1, 2);
+	/* 多路复用器切换后等待信号稳定 (10-20μs) */
+	usleep_range(10, 20);
 	return 0;
 }
 
@@ -350,35 +350,50 @@ static int joypad_amux_select(struct analog_mux *amux, int channel, bool split_a
 static int joypad_adc_read(struct joypad *joypad, struct bt_adc *adc, int *out_value)
 {
 	int value, ret;
+	int samples[3];
+	int i;
 
-	if (joypad->direct_adc_mode) {
-		if (!adc->channel)
-			return -ENODEV;
-		ret = iio_read_channel_processed(adc->channel, &value);
-		if (ret)
-			return ret;
-	} else if (joypad->split_adc_mode) {
-		if (!joypad->amux)
-			return -ENODEV;
-		ret = joypad_amux_select(joypad->amux, adc->amux_ch, true);
-		if (ret)
-			return ret;
-		if (adc->amux_ch <= 1)
-			ret = iio_read_channel_processed(joypad->amux->iio_ch_r, &value);
-		else
-			ret = iio_read_channel_processed(joypad->amux->iio_ch, &value);
-		if (ret)
-			return ret;
-	} else {
-		if (!joypad->amux)
-			return -ENODEV;
-		ret = joypad_amux_select(joypad->amux, adc->amux_ch, false);
-		if (ret)
-			return ret;
-		ret = iio_read_channel_processed(joypad->amux->iio_ch, &value);
-		if (ret)
-			return ret;
+	for (i = 0; i < 3; i++) {
+		if (joypad->direct_adc_mode) {
+			if (!adc->channel)
+				return -ENODEV;
+			ret = iio_read_channel_processed(adc->channel, &samples[i]);
+			if (ret)
+				return ret;
+		} else if (joypad->split_adc_mode) {
+			if (!joypad->amux)
+				return -ENODEV;
+			ret = joypad_amux_select(joypad->amux, adc->amux_ch, true);
+			if (ret)
+				return ret;
+			if (adc->amux_ch <= 1)
+				ret = iio_read_channel_processed(joypad->amux->iio_ch_r, &samples[i]);
+			else
+				ret = iio_read_channel_processed(joypad->amux->iio_ch, &samples[i]);
+			if (ret)
+				return ret;
+		} else {
+			if (!joypad->amux)
+				return -ENODEV;
+			ret = joypad_amux_select(joypad->amux, adc->amux_ch, false);
+			if (ret)
+				return ret;
+			ret = iio_read_channel_processed(joypad->amux->iio_ch, &samples[i]);
+			if (ret)
+				return ret;
+		}
+		if (i < 2)
+			usleep_range(5, 10);
 	}
+
+	if (samples[0] > samples[1])
+		swap(samples[0], samples[1]);
+	if (samples[1] > samples[2])
+		swap(samples[1], samples[2]);
+	if (samples[0] > samples[1])
+		swap(samples[0], samples[1]);
+
+	value = samples[1];
 
 	*out_value = value * adc->scale;
 	return 0;
@@ -621,11 +636,15 @@ static ssize_t joypad_store_adc_cal(struct device *dev,
 
 	if (calibration) {
 		int nbtn;
+		#define ADC_CAL_SAMPLES  50
 
 		mutex_lock(&joypad->lock);
 		for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
 			struct bt_adc *adc = &joypad->adcs[nbtn];
 			int value, ret;
+			long sum = 0;
+			int samples = 0;
+			int i;
 
 			/*
 			 * 直接ADC模式固定为2轴 (ABS_X/ABS_Y). 不应用 skip_absr/skip_absl.
@@ -639,16 +658,28 @@ static ssize_t joypad_store_adc_cal(struct device *dev,
 					continue;
 			}
 
-			ret = joypad_adc_read(joypad, adc, &value);
-			if (ret) {
-				dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
-					__func__, nbtn, ret);
-				continue;
+			/* 多次采样取平均值 */
+			for (i = 0; i < ADC_CAL_SAMPLES; i++) {
+				ret = joypad_adc_read(joypad, adc, &value);
+				if (ret) {
+					dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
+						__func__, nbtn, ret);
+					continue;
+				}
+				sum += value;
+				samples++;
+				usleep_range(1000, 2000);  // 1ms间隔
 			}
+
+			if (samples == 0)
+				continue;
+
+			value = sum / samples;
 			adc->value = value;
 			adc->cal = value;
 		}
 		mutex_unlock(&joypad->lock);
+		#undef ADC_CAL_SAMPLES
 	}
 	return count;
 }
@@ -776,7 +807,11 @@ static ssize_t joypad_store_period(struct device *dev,
 	struct joypad *joypad = platform_get_drvdata(pdev);
 
 	mutex_lock(&joypad->lock);
-	pwm_set_period(joypad->pwm, simple_strtoul(buf, NULL, 21));
+	if (IS_ERR_OR_NULL(joypad->pwm)) {
+		mutex_unlock(&joypad->lock);
+		return -ENODEV;
+	}
+	pwm_set_period(joypad->pwm, simple_strtoul(buf, NULL, 10));
 	mutex_unlock(&joypad->lock);
 
 	return count;
@@ -789,7 +824,10 @@ static ssize_t joypad_show_period(struct device *dev,
 {
 	struct platform_device *pdev  = to_platform_device(dev);
 	struct joypad *joypad = platform_get_drvdata(pdev);
-	
+
+	if (IS_ERR_OR_NULL(joypad->pwm))
+		return -ENODEV;
+
 	return sprintf(buf, "%d\n", pwm_get_period(joypad->pwm));
 }
 
@@ -1150,97 +1188,97 @@ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 
 /*----------------------------------------------------------------------------*/
 /**
- * joypad_adc_process_value() - 处理原始ADC值, 包括校准、
- *                              死区、调优、钳位和反转.
- * @joypad: joypad设备上下文
- * @adc:    包含原始值和参数的ADC轴结构体
- *
- * 此函数对 adc->value 应用以下处理流程:
- *   1. 减去校准偏移量 (adc->cal)
- *   2. 应用死区滤波器 (中心附近的值变为0)
- *   3. 应用方向调优 (正/负缩放)
- *   4. 钳位到 [adc->min, adc->max] 范围
- *   5. 如果配置了反转则应用反转
- *
- * 返回: 处理后的值, 可直接用于 input_report_abs()
- */
-static int joypad_adc_process_value(struct joypad *joypad, struct bt_adc *adc)
-{
-	int value = adc->value;
-
-#if JOYPAD_DEBUG_TUNING
-	/* 存储校准前的原始值用于调试 */
-	adc->raw = value;
-#endif
-
-	/* 步骤1: 移除校准偏移量 (中心点) */
-	value = value - adc->cal;
-
-	/* 步骤2: 应用死区滤波器 */
-	if (joypad->bt_adc_deadzone) {
-		if (abs(value) < joypad->bt_adc_deadzone)
-			value = 0;
-	}
-
-	/* 步骤3: 应用方向调优 (百分比缩放) */
-	if (adc->tuning_n && value < 0)
-		value = ADC_DATA_TUNING(value, adc->tuning_n);
-	if (adc->tuning_p && value > 0)
-		value = ADC_DATA_TUNING(value, adc->tuning_p);
-
-	/* 步骤4: 钳位到有效范围 */
-	value = CLAMP(value, adc->min, adc->max);
-
-	/* 步骤5: 如果配置了轴反转则应用 */
-	if (adc->invert)
-		value = -value;
-
-	adc->value = value;
-	return value;
-}
-
-/*----------------------------------------------------------------------------*/
-/**
- * joypad_adc_report_axis() - 读取、处理并报告单个ADC轴.
+ * joypad_adc_report_pair() - 读取、处理并报告一对ADC摇杆轴(X/Y).
  * @joypad:   joypad设备上下文
  * @poll_dev: 轮询输入设备
- * @idx:      轴索引
+ * @adcx:     X轴ADC结构体
+ * @adcy:     Y轴ADC结构体
+ * @idx:      X轴索引 (仅用于错误日志)
  *
- * 读取指定索引的ADC轴值，应用校准/死区/调优/钳位/反转处理，
- * 然后通过 input_report_abs() 报告给输入子系统。
- *
- * 如果摇杆切换键按下，左摇杆轴（ABS_X/ABS_Y）会上报为右摇杆轴（ABS_RX/ABS_RY）。
+ * 处理流程: 读取 → 校准偏移 → 径向死区 → 方向调优 →
+ *           钳位 → 摇杆切换映射 → 反转 → 上报.
  */
-static void joypad_adc_report_axis(struct joypad *joypad,
+static void joypad_adc_report_pair(struct joypad *joypad,
 				   struct input_polled_dev *poll_dev,
+				   struct bt_adc *adcx, struct bt_adc *adcy,
 				   int idx)
 {
-	struct bt_adc *adc = &joypad->adcs[idx];
-	int value, ret;
-	int report_type;
+	int mag, deadzone = joypad->bt_adc_deadzone;
+	int report_type_x, report_type_y;
+	int value_x, value_y, ret;
 
-	ret = joypad_adc_read(joypad, adc, &value);
+	/* 读取X和Y */
+	ret = joypad_adc_read(joypad, adcx, &value_x);
 	if (ret) {
 		dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
 			__func__, idx, ret);
 		return;
 	}
+	ret = joypad_adc_read(joypad, adcy, &value_y);
+	if (ret) {
+		dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
+			__func__, idx + 1, ret);
+		return;
+	}
 
-	adc->value = value;
-	value = joypad_adc_process_value(joypad, adc);
+	adcx->value = value_x;
+	adcy->value = value_y;
 
-	/* 根据切换键状态决定上报的轴类型 */
-	report_type = adc->report_type;
+#if JOYPAD_DEBUG_TUNING
+	/* 存储校准前的原始值用于调试 */
+	adcx->raw = value_x;
+	adcy->raw = value_y;
+#endif
+
+	/* 校准 */
+	adcx->value -= adcx->cal;
+	adcy->value -= adcy->cal;
+
+	/* 径向死区 */
+	mag = int_sqrt((adcx->value * adcx->value) + (adcy->value * adcy->value));
+	if (deadzone && mag <= deadzone) {
+		adcx->value = 0;
+		adcy->value = 0;
+	}
+
+	/* 应用调优 */
+	if (adcx->tuning_n && adcx->value < 0)
+		adcx->value = ADC_DATA_TUNING(adcx->value, adcx->tuning_n);
+	if (adcx->tuning_p && adcx->value > 0)
+		adcx->value = ADC_DATA_TUNING(adcx->value, adcx->tuning_p);
+	if (adcy->tuning_n && adcy->value < 0)
+		adcy->value = ADC_DATA_TUNING(adcy->value, adcy->tuning_n);
+	if (adcy->tuning_p && adcy->value > 0)
+		adcy->value = ADC_DATA_TUNING(adcy->value, adcy->tuning_p);
+
+	/* 限制范围 */
+	adcx->value = CLAMP(adcx->value, adcx->min, adcx->max);
+	adcy->value = CLAMP(adcy->value, adcy->min, adcy->max);
+
+	/* 处理摇杆切换 */
+	report_type_x = adcx->report_type;
+	report_type_y = adcy->report_type;
 	if (joypad->stick_switch_active) {
-		switch (report_type) {
-		case ABS_X:  report_type = ABS_RX; break;  /* 左摇杆X → 右摇杆X */
-		case ABS_Y:  report_type = ABS_RY; break;  /* 左摇杆Y → 右摇杆Y */
-		case ABS_RX: report_type = ABS_X;  break;  /* 右摇杆X → 左摇杆X */
-		case ABS_RY: report_type = ABS_Y;  break;  /* 右摇杆Y → 左摇杆Y */
+		switch (report_type_x) {
+		case ABS_X:  report_type_x = ABS_RX; break;
+		case ABS_Y:  report_type_x = ABS_RY; break;
+		case ABS_RX: report_type_x = ABS_X;  break;
+		case ABS_RY: report_type_x = ABS_Y;  break;
+		}
+		switch (report_type_y) {
+		case ABS_X:  report_type_y = ABS_RX; break;
+		case ABS_Y:  report_type_y = ABS_RY; break;
+		case ABS_RX: report_type_y = ABS_X;  break;
+		case ABS_RY: report_type_y = ABS_Y;  break;
 		}
 	}
 
-	input_report_abs(poll_dev->input, report_type, value);
+	/* 反转处理 */
+	value_x = adcx->invert ? -adcx->value : adcx->value;
+	value_y = adcy->invert ? -adcy->value : adcy->value;
+
+	input_report_abs(poll_dev->input, report_type_x, value_x);
+	input_report_abs(poll_dev->input, report_type_y, value_y);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1264,10 +1302,10 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
 	if (!joypad->amux_count)
 		return;
 
-	/* 直接ADC模式: 固定2轴 (ABS_X/ABS_Y), 逐轴处理 */
+	/* 直接ADC模式: 固定2轴 (ABS_X/ABS_Y) */
 	if (joypad->direct_adc_mode) {
-		for (nbtn = 0; nbtn < joypad->amux_count; nbtn++)
-			joypad_adc_report_axis(joypad, poll_dev, nbtn);
+		joypad_adc_report_pair(joypad, poll_dev,
+				       &joypad->adcs[0], &joypad->adcs[1], 0);
 		return;
 	}
 
@@ -1276,18 +1314,13 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
 	 * 可通过 skip_absr/skip_absl 标志跳过轴对.
 	 */
 	for (nbtn = 0; nbtn + 1 < joypad->amux_count; nbtn += 2) {
-		bool skip_pair;
-		int i;
-
-		/* 确定是否应跳过此轴对 */
-		skip_pair = (nbtn == 0 && joypad->skip_absr) ||
-			    (nbtn == 2 && joypad->skip_absl);
-		if (skip_pair)
+		if ((nbtn == 0 && joypad->skip_absr) ||
+		    (nbtn == 2 && joypad->skip_absl))
 			continue;
 
-		/* 处理轴对中的两个轴 (X和Y) */
-		for (i = 0; i < 2; i++)
-			joypad_adc_report_axis(joypad, poll_dev, nbtn + i);
+		joypad_adc_report_pair(joypad, poll_dev,
+				       &joypad->adcs[nbtn],
+				       &joypad->adcs[nbtn + 1], nbtn);
 	}
 }
 
@@ -1300,7 +1333,7 @@ static void joypad_adc_check(struct input_polled_dev *poll_dev)
  * 检测 stick-switch-key 的按键状态并保存到 joypad->stick_switch_active。
  * 不进行任何事件上报，只更新状态标志。
  *
- * 上报逻辑在 joypad_adc_report_axis() 和 joypad_gpio_key_check() 中处理。
+ * 上报逻辑在 joypad_adc_check() 和 joypad_gpio_key_check() 中处理。
  */
 static void joypad_stick_switch_update(struct joypad *joypad,
 				       struct input_polled_dev *poll_dev)
@@ -1310,6 +1343,12 @@ static void joypad_stick_switch_update(struct joypad *joypad,
 	/* 未配置切换键 */
 	if (!joypad->stick_switch_code)
 		return;
+
+	/* 超出有效按键码范围（如用户态的 999 哨兵值）视为未绑定 */
+	if (joypad->stick_switch_code >= KEY_CNT) {
+		joypad->stick_switch_active = false;
+		return;
+	}
 
 	/* 检测按键状态并保存 */
 	joypad->stick_switch_active = test_bit(joypad->stick_switch_code, input->key);
@@ -1374,36 +1413,66 @@ static void joypad_open(struct input_polled_dev *poll_dev)
 	}
 
 	/* 通过读取初始中心值校准ADC轴，并直接上报初始位置 */
-	for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
-		struct bt_adc *adc = &joypad->adcs[nbtn];
-		int value, ret;
+	/* 使用成对处理，支持径向死区 */
+	/* 使用多次采样取平均值，避免单次读数的偶然性 */
+	#define CALIBRATION_SAMPLES  50
+	for (nbtn = 0; nbtn + 1 < joypad->amux_count; nbtn += 2) {
+		struct bt_adc *adcx = &joypad->adcs[nbtn];
+		struct bt_adc *adcy = &joypad->adcs[nbtn + 1];
+		int value_x, value_y, ret;
+		long sum_x = 0, sum_y = 0;
+		int samples = 0;
+		int i;
 
 		/* 跳过未为此设备配置的轴 */
 		if (!joypad->direct_adc_mode) {
-			if (joypad->skip_absr && (nbtn == 0 || nbtn == 1))
+			if (joypad->skip_absr && (nbtn == 0))
 				continue;
-			if (joypad->skip_absl && (nbtn == 2 || nbtn == 3))
+			if (joypad->skip_absl && (nbtn == 2))
 				continue;
 		}
 
-		ret = joypad_adc_read(joypad, adc, &value);
-		if (ret) {
-			dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
-				__func__, nbtn, ret);
-			continue;
+		/* 多次采样取平均值 */
+		for (i = 0; i < CALIBRATION_SAMPLES; i++) {
+			ret = joypad_adc_read(joypad, adcx, &value_x);
+			if (ret) {
+				dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
+					__func__, nbtn, ret);
+				continue;
+			}
+			ret = joypad_adc_read(joypad, adcy, &value_y);
+			if (ret) {
+				dev_err(joypad->dev, "%s: adc read failed [%d], err=%d\n",
+					__func__, nbtn + 1, ret);
+				continue;
+			}
+			sum_x += value_x;
+			sum_y += value_y;
+			samples++;
+			usleep_range(1000, 2000);  // 1ms间隔
 		}
+
+		if (samples == 0)
+			continue;
+
+		/* 计算平均值作为中心点 */
+		value_x = sum_x / samples;
+		value_y = sum_y / samples;
 
 		/* 校准：以当前位置作为中心点 */
-		adc->cal = value;
+		adcx->cal = value_x;
+		adcy->cal = value_y;
 
 		/* 上报初始位置（校准后偏移为0） */
-		adc->value = value;
-		value = joypad_adc_process_value(joypad, adc);
-		input_report_abs(poll_dev->input, adc->report_type, value);
+		adcx->value = 0;
+		adcy->value = 0;
+		input_report_abs(poll_dev->input, adcx->report_type, 0);
+		input_report_abs(poll_dev->input, adcy->report_type, 0);
 
-		dev_dbg(joypad->dev, "%s: adc[%d] calibrated = %d\n",
-			__func__, nbtn, adc->cal);
+		dev_dbg(joypad->dev, "%s: adc[%d] calibrated = %d, adc[%d] calibrated = %d\n",
+			__func__, nbtn, adcx->cal, nbtn + 1, adcy->cal);
 	}
+	#undef CALIBRATION_SAMPLES
 
 	/* 上报按钮初始状态 */
 	joypad_gpio_check(poll_dev);
