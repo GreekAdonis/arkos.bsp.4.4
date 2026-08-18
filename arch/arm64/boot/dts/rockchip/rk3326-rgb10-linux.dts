@@ -60,6 +60,7 @@
 		/* poll device interval (ms), adc read interval */
 		poll-interval = <10>;
 		invert-absx;
+		stick-switch-key = <BTN_TRIGGER_HAPPY5>;
 		
 		sw1 {
 			gpios = <&gpio1 RK_PB4 GPIO_ACTIVE_LOW>;
@@ -103,13 +104,18 @@
 		};
 		sw11 {
 			gpios = <&gpio2 RK_PA1 GPIO_ACTIVE_LOW>;
-			label = "BTN_THUMBR";
+			label = "BTN_THUMBL";
 			linux,code = <BTN_TRIGGER_HAPPY3>;//音量+改
 		};
 		sw12 {
+			gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_LOW>;
+			label = "BTN_THUMBR";
+			linux,code = <BTN_TRIGGER_HAPPY4>;//占位
+		};
+		sw13 {
 			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
-			label = "BTN_THUMBL";
-			linux,code = <BTN_TRIGGER_HAPPY4>;//音量3改
+			label = "BTN_THUMBR";
+			linux,code = <BTN_TRIGGER_HAPPY5>;//音量3改
 		};
 		sw15 {
 			gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;

@@ -104,6 +104,7 @@
 		invert-absx;
 		invert-absy;
 		skip-absr;
+		stick-switch-key = <BTN_TRIGGER_HAPPY6>;
 		sw1 {
 			gpios = <&gpio1 RK_PB4 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";
@@ -146,18 +147,23 @@
 		};
 		sw11 {
 			gpios = <&gpio2 RK_PA2 GPIO_ACTIVE_LOW>;
-			label = "BTN_THUMBR";
-			linux,code = <BTN_TRIGGER_HAPPY3>;//右上加号
+			label = "BTN_THUMBL";
+			linux,code = <BTN_TRIGGER_HAPPY3>;//占位用
 		};
 		sw12 {
-			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
-			label = "BTN_THUMBL";
+			gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_LOW>;
+			label = "BTN_THUMBR";
 			linux,code = <BTN_TRIGGER_HAPPY4>;
 		};
 		sw13 {
 			gpios = <&gpio2 RK_PA4 GPIO_ACTIVE_LOW>;
 			label = "GPIO F5";
 			linux,code = <BTN_TRIGGER_HAPPY5>;//左上减号
+		};
+		sw14 {
+			gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
+			label = "GPIO F6";
+			linux,code = <BTN_TRIGGER_HAPPY6>;//右上加号
 		};
 		sw15 {
 			gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_LOW>;

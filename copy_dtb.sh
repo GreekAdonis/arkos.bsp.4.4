@@ -81,6 +81,7 @@ rk3326-r50h-linux|r50h
 rk3326-r50s-linux|r50s
 rk3326-rf35h-linux|rf35h
 rk3326-rf40h-linux|rf40h
+rk3326-rf45h-linux|rf45h
 rk3326-rf45v-linux|rf45v
 rk3326-rf55h-linux|rf55h
 rk3326-rg351mp-linux|rg351mp

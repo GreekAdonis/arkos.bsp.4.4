@@ -606,7 +606,7 @@
 		};
 		
 		battery {
-			compatible = "rk817,battery";
+			compatible = "rk817,battery", "rk817_fg";
 			ocv_table = <
 			3300 3340 3380 3420 3460 3500 3540
 			3570 3610 3650 3690 3720 3750 3790
@@ -639,7 +639,7 @@
 			
 			/* P.C.B rev0.2 DC Detect & Charger Status LED GPIO */
 			dc_det_gpio  = <&gpio0 RK_PB3 GPIO_ACTIVE_HIGH>;
-			// bat_low_gpio = <&gpio2 RK_PB5 GPIO_ACTIVE_HIGH>;
+			bat_low_gpio = <&gpio2 RK_PB5 GPIO_ACTIVE_HIGH>;
 			
 			extcon = <&u2phy>;
 		};

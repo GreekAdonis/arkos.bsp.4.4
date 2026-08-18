@@ -10,6 +10,7 @@
 #include <linux/scatterlist.h>
 #include <linux/dma-mapping.h>
 #include <linux/version.h>
+#include <linux/kmod.h>
 #include <linux/notifier.h>
 #include <linux/semaphore.h>
 #include <linux/pm_runtime.h>
@@ -277,6 +278,7 @@ static void usb_setup_service_devices(void)
 	skw_bind_boot_driver(&usb_ports[0]->udev->dev);
 	if(usb_ports[1]->pdev){
 		if(wifi_data_pdev==NULL) {
+			request_module("swt6621s_wifi");
 			ret = platform_device_add(usb_ports[1]->pdev);
 			if(ret) {
 				skw_usb_err("the fail to register WIFI device\n");
@@ -294,6 +296,7 @@ static void usb_setup_service_devices(void)
 		bt_port = usb_ports[bt_audio_port];
 		bt_port->pdev = bluetooth_pdev;
 		bluetooth_pdev = NULL;
+		request_module("skwbt");
 		ret = platform_device_add(bt_port->pdev);
 		if(ret) {
 			skw_usb_err("failt to register Bluetooth device\n");
